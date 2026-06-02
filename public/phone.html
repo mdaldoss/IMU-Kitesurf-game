@@ -34,6 +34,14 @@
   <p id="msg"></p>
   <p class="hint">Keep this page open and the screen awake while testing.</p>
 
+  <!-- iOS Safari has no Vibration API, but toggling a `switch`-styled checkbox
+       via a programmatic label click produces a system haptic tap (iOS 17.4+).
+       Kept off-screen (not display:none, which suppresses the haptic). -->
+  <label id="iosHapticLabel" aria-hidden="true"
+         style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;">
+    <input id="iosHapticSwitch" type="checkbox" switch />
+  </label>
+
   <script>
     const $ = (id) => document.getElementById(id);
     const SEND_HZ = 50;
@@ -48,20 +56,35 @@
     }
 
     const canVibrate = typeof navigator.vibrate === 'function';
-    $('haptic').textContent = canVibrate ? 'supported' : 'not supported (iOS web has no vibration)';
+    const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS reports as Mac
+    const iosLabel = $('iosHapticLabel');
+    const hapticMode = canVibrate ? 'vibration' : (isIOS ? 'ios-switch' : 'none');
+    const IDLE_TEXT = {
+      vibration: 'supported (vibration)',
+      'ios-switch': 'iOS switch trick (needs iOS 17.4+)',
+      none: 'not supported on this browser',
+    }[hapticMode];
+    $('haptic').textContent = IDLE_TEXT;
+
+    function iosHaptic() {
+      // A programmatic click on the label toggles the switch and fires the tap.
+      try { iosLabel.click(); } catch {}
+    }
 
     let hapticFlash = 0;
     function click() {
-      // A short pulse feels like a "click". No-op on browsers without the API.
-      if (canVibrate) navigator.vibrate(20);
+      // A short pulse / tap feels like a "click".
+      if (hapticMode === 'vibration') navigator.vibrate(20);
+      else if (hapticMode === 'ios-switch') iosHaptic();
       hapticFlash = Date.now();
-      $('haptic').textContent = canVibrate ? '● click' : 'click (no motor)';
+      $('haptic').textContent = '● click';
     }
     // Reset the flashed label shortly after a click.
     setInterval(() => {
       if (hapticFlash && Date.now() - hapticFlash > 250) {
         hapticFlash = 0;
-        $('haptic').textContent = canVibrate ? 'supported' : 'not supported (iOS web has no vibration)';
+        $('haptic').textContent = IDLE_TEXT;
       }
     }, 100);
 

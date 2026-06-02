@@ -64,9 +64,20 @@ you get one click per genuine left↔right crossing. The laptop also flashes the
 center line and (optionally) plays a tick so you can confirm it without an
 Android phone in hand.
 
-> Heads-up: the Web Vibration API works on Android Chrome but **not on iOS
-> Safari** (iOS web has no vibration). On iOS you'll still see the laptop flash
-> and hear the tick, but the phone won't buzz.
+**iPhone support:** iOS Safari has no Vibration API, so the phone falls back to
+the "switch haptic" trick — programmatically toggling a hidden `switch`-styled
+checkbox produces a system haptic tap on **iOS 17.4+ Safari**. The phone page's
+`haptics` line shows which path is active (`vibration` on Android, `iOS switch
+trick` on iPhone). On older iOS or browsers without either, you'll still get the
+laptop flash + tick but no phone haptic.
+
+### Kite lag
+
+The bar responds to your tilt instantly; the **kite trails it**, like a real
+kite swinging through the window under wind/line/size inertia. It's a first-order
+lag with a tunable **response time** (seconds to mostly catch up). Toggle it off
+to make the kite track the bar exactly. The 12 o'clock haptic fires when the
+*kite* crosses center, so with lag enabled the click trails the bar motion.
 
 ### Fallback: ngrok (clean HTTPS, needs internet)
 

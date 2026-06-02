@@ -72,6 +72,17 @@
           <label><input type="checkbox" id="tick" checked /> Also play a tick on this laptop</label>
         </div>
       </div>
+
+      <div class="panel" style="margin-top:1rem">
+        <h2>Kite dynamics</h2>
+        <div class="ctrl">
+          <label><input type="checkbox" id="lag" checked /> Kite lag (kite trails the bar)</label>
+        </div>
+        <div class="ctrl">
+          <label for="lagTau">Response time — seconds to mostly catch up</label>
+          <input type="number" id="lagTau" value="0.6" min="0.1" max="3" step="0.1" />
+        </div>
+      </div>
     </div>
 
     <div>
@@ -86,7 +97,8 @@
 
     // --- persisted mapping config ---
     const cfg = Object.assign(
-      { axis: 'beta', invert: false, scale: 45, neutral: 0, haptics: true, hyst: 0.1, tick: true },
+      { axis: 'beta', invert: false, scale: 45, neutral: 0, haptics: true, hyst: 0.1, tick: true,
+        lag: true, lagTau: 0.6 },
       JSON.parse(localStorage.getItem('kite-mapping') || '{}')
     );
     $('axis').value = cfg.axis;
@@ -95,6 +107,8 @@
     $('haptics').checked = cfg.haptics;
     $('hyst').value = cfg.hyst;
     $('tick').checked = cfg.tick;
+    $('lag').checked = cfg.lag;
+    $('lagTau').value = cfg.lagTau;
     const saveCfg = () => localStorage.setItem('kite-mapping', JSON.stringify(cfg));
     $('axis').addEventListener('change', (e) => { cfg.axis = e.target.value; saveCfg(); });
     $('invert').addEventListener('change', (e) => { cfg.invert = e.target.checked; saveCfg(); });
@@ -102,6 +116,8 @@
     $('haptics').addEventListener('change', (e) => { cfg.haptics = e.target.checked; saveCfg(); });
     $('hyst').addEventListener('change', (e) => { cfg.hyst = Number(e.target.value) || 0.1; saveCfg(); });
     $('tick').addEventListener('change', (e) => { cfg.tick = e.target.checked; saveCfg(); });
+    $('lag').addEventListener('change', (e) => { cfg.lag = e.target.checked; saveCfg(); });
+    $('lagTau').addEventListener('change', (e) => { cfg.lagTau = Number(e.target.value) || 0.6; saveCfg(); });
     $('zero').addEventListener('click', () => {
       if (last) { cfg.neutral = last[cfg.axis] || 0; saveCfg(); }
     });
@@ -225,21 +241,38 @@
     }
 
     const barAnchor = { x: cx, y: H - 50 };
+    let kitePos = 0;                          // lagged kite position, eases toward target
+    let lastFrame = performance.now();
     function render() {
-      const s = steeringValue();             // -1.5..1.5
-      $('steer').textContent = s.toFixed(2);
-      detectCrossing(s);
+      const now = performance.now();
+      const dt = Math.min(0.1, (now - lastFrame) / 1000);   // clamp big gaps (tab switch)
+      lastFrame = now;
+
+      const target = steeringValue();          // -1.5..1.5, where the bar points (instant)
+      $('steer').textContent = target.toFixed(2);
+
+      // The bar responds instantly; the kite trails it (wind/line/size inertia).
+      // First-order lag: ease kitePos toward target with time constant lagTau.
+      if (cfg.lag) {
+        const k = 1 - Math.exp(-dt / Math.max(0.05, cfg.lagTau));
+        kitePos += (target - kitePos) * k;
+      } else {
+        kitePos = target;
+      }
+
+      // Click fires when the *kite* crosses 12, so with lag the click trails the bar.
+      detectCrossing(kitePos);
 
       // flash the center line briefly after a crossing
       const age = performance.now() - flashTs;
       centerFlash.setAttribute('opacity', age < 300 ? (1 - age / 300).toFixed(3) : 0);
 
-      // kite slides horizontally near the top; bar rolls about its center.
-      const kiteX = cx + s * (W / 2 - 60);
+      // kite slides horizontally near the top (lagged); bar rolls instantly.
+      const kiteX = cx + kitePos * (W / 2 - 60);
       const kiteY = 70;
       kite.setAttribute('transform', `translate(${kiteX} ${kiteY})`);
 
-      const barAngle = s * 35;               // degrees of bar roll
+      const barAngle = target * 35;            // degrees of bar roll (instant)
       barG.setAttribute('transform', `translate(${barAnchor.x} ${barAnchor.y}) rotate(${barAngle})`);
 
       // lines from bar ends up to the kite
