@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Kite bar — phone sensor</title>
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    body { padding: 1.2rem; max-width: 460px; margin: 0 auto; }
+    .big { width: 100%; padding: 1.1rem; font-size: 1.1rem; margin: 1rem 0; }
+    .readout { font-size: 2rem; margin: 0.2rem 0; }
+    .row { display: flex; justify-content: space-between; padding: 0.35rem 0; border-bottom: 1px solid var(--line); }
+    .row span:last-child { color: var(--accent); }
+    #msg { color: var(--muted); min-height: 1.2rem; margin-top: 0.6rem; }
+    .hint { color: var(--muted); font-size: 0.85rem; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <h1>Kite bar — phone sensor</h1>
+  <p class="hint">Hold the phone <strong>landscape, flat, screen up</strong> — speaker edge to your right.
+  Tap below, allow motion access, then tilt to steer.</p>
+
+  <button id="enable" class="big">Enable sensors &amp; connect</button>
+
+  <div class="panel">
+    <h2><span id="dot" class="dot"></span><span id="status">Not connected</span></h2>
+    <div class="row"><span>alpha (yaw)</span><span id="alpha" class="mono">—</span></div>
+    <div class="row"><span>beta (pitch)</span><span id="beta" class="mono">—</span></div>
+    <div class="row"><span>gamma (roll)</span><span id="gamma" class="mono">—</span></div>
+    <div class="row"><span>sending</span><span id="rate" class="mono">0 Hz</span></div>
+  </div>
+
+  <p id="msg"></p>
+  <p class="hint">Keep this page open and the screen awake while testing.</p>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const SEND_HZ = 50;
+    let latest = null;       // most recent reading {alpha,beta,gamma,abs}
+    let ws = null;
+    let sentCount = 0;
+    let reconnectDelay = 1000;
+
+    function setStatus(text, cls) {
+      $('status').textContent = text;
+      $('dot').className = 'dot' + (cls ? ' ' + cls : '');
+    }
+
+    function connect() {
+      ws = new WebSocket(`wss://${location.host}/ws`);
+      ws.addEventListener('open', () => {
+        reconnectDelay = 1000;
+        ws.send(JSON.stringify({ t: 'hello', role: 'phone' }));
+        setStatus('Connected — streaming', 'good');
+      });
+      ws.addEventListener('close', () => {
+        setStatus('Disconnected — retrying…', 'warn');
+        setTimeout(connect, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 2, 8000);
+      });
+      ws.addEventListener('error', () => ws.close());
+    }
+
+    function onOrientation(e) {
+      latest = {
+        alpha: e.alpha, beta: e.beta, gamma: e.gamma,
+        abs: e.absolute === true || e.type === 'deviceorientationabsolute',
+      };
+      $('alpha').textContent = fmt(e.alpha);
+      $('beta').textContent = fmt(e.beta);
+      $('gamma').textContent = fmt(e.gamma);
+    }
+    const fmt = (v) => (v == null ? '—' : v.toFixed(1) + '°');
+
+    // Send the latest reading at a fixed rate, decoupled from sensor rate.
+    setInterval(() => {
+      if (!ws || ws.readyState !== WebSocket.OPEN || !latest) return;
+      if (ws.bufferedAmount > 1024) return; // backpressure guard
+      ws.send(JSON.stringify({ t: 'ori', ts: Date.now(), ...latest }));
+      sentCount++;
+    }, Math.round(1000 / SEND_HZ));
+
+    setInterval(() => { $('rate').textContent = sentCount + ' Hz'; sentCount = 0; }, 1000);
+
+    async function start() {
+      $('msg').textContent = '';
+      // iOS 13+ requires an explicit permission request inside a user gesture.
+      try {
+        if (typeof DeviceOrientationEvent !== 'undefined' &&
+            typeof DeviceOrientationEvent.requestPermission === 'function') {
+          const res = await DeviceOrientationEvent.requestPermission();
+          if (res !== 'granted') { $('msg').textContent = 'Motion permission denied.'; return; }
+        }
+      } catch (err) {
+        $('msg').textContent = 'Permission request failed: ' + err.message;
+        return;
+      }
+
+      if (typeof DeviceOrientationEvent === 'undefined') {
+        $('msg').textContent = 'This browser does not expose orientation sensors.';
+        return;
+      }
+
+      // Prefer the absolute event when available (more stable heading).
+      if ('ondeviceorientationabsolute' in window) {
+        window.addEventListener('deviceorientationabsolute', onOrientation);
+      }
+      window.addEventListener('deviceorientation', onOrientation);
+
+      $('enable').textContent = 'Sensors enabled';
+      $('enable').disabled = true;
+      connect();
+    }
+
+    $('enable').addEventListener('click', start);
+  </script>
+</body>
+</html>

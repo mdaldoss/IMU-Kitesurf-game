@@ -1,0 +1,14 @@
+{
+  "name": "imu-kitesurf-game",
+  "version": "0.1.0",
+  "description": "Kitesurf-bar simulator — Phase 1: stream a smartphone's IMU orientation to a laptop browser and validate the steering mapping.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "qrcode-terminal": "^0.12.0",
+    "selfsigned": "^2.4.1",
+    "ws": "^8.18.0"
+  }
+}

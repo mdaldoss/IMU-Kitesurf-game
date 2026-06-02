@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kite bar — laptop display</title>
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    body { padding: 1.2rem; max-width: 1000px; margin: 0 auto; }
+    .grid { display: grid; grid-template-columns: 320px 1fr; gap: 1rem; align-items: start; }
+    .row { display: flex; justify-content: space-between; padding: 0.3rem 0; border-bottom: 1px solid var(--line); }
+    .row span:last-child { color: var(--accent); }
+    .ctrl { margin: 0.7rem 0; }
+    .ctrl label { display: block; margin-bottom: 0.3rem; }
+    select, input[type=number] { font: inherit; background: #0d1117; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 0.35rem 0.5rem; }
+    .axisrow { display: flex; gap: 0.6rem; align-items: center; }
+    .stage { background: #0d1117; border: 1px solid var(--line); border-radius: 10px; }
+    .steer-big { font-size: 2.5rem; color: var(--accent); }
+    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <h1>Kite bar — laptop display</h1>
+
+  <div class="grid">
+    <div>
+      <div class="panel">
+        <h2><span id="dot" class="dot"></span><span id="status">Waiting for phone…</span></h2>
+        <div class="row"><span>latency</span><span id="latency" class="mono">—</span></div>
+        <div class="row"><span>rate</span><span id="rate" class="mono">0 Hz</span></div>
+        <div class="row"><span>alpha</span><span id="alpha" class="mono">—</span></div>
+        <div class="row"><span>beta</span><span id="beta" class="mono">—</span></div>
+        <div class="row"><span>gamma</span><span id="gamma" class="mono">—</span></div>
+      </div>
+
+      <div class="panel" style="margin-top:1rem">
+        <h2>Steering mapping</h2>
+        <div class="ctrl">
+          <label for="axis">Steering axis</label>
+          <div class="axisrow">
+            <select id="axis">
+              <option value="beta">beta (default for landscape grip)</option>
+              <option value="gamma">gamma</option>
+              <option value="alpha">alpha</option>
+            </select>
+            <label><input type="checkbox" id="invert" /> invert</label>
+          </div>
+        </div>
+        <div class="ctrl">
+          <label for="scale">Full deflection at ± (degrees)</label>
+          <input type="number" id="scale" value="45" min="5" max="180" step="5" />
+        </div>
+        <div class="ctrl">
+          <button id="zero" class="secondary">Zero / calibrate neutral</button>
+        </div>
+        <div class="ctrl">
+          <label>Derived steering</label>
+          <div class="steer-big mono"><span id="steer">0.00</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <svg id="stage" class="stage" viewBox="0 0 600 420" width="100%"></svg>
+      <p style="color:var(--muted)">Tilt the phone right → the kite and bar should move <strong>right →</strong>.
+      If reversed, toggle <em>invert</em>; if the wrong number reacts, switch <em>axis</em>; hold level and hit <em>Zero</em>.</p>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    // --- persisted mapping config ---
+    const cfg = Object.assign(
+      { axis: 'beta', invert: false, scale: 45, neutral: 0 },
+      JSON.parse(localStorage.getItem('kite-mapping') || '{}')
+    );
+    $('axis').value = cfg.axis;
+    $('invert').checked = cfg.invert;
+    $('scale').value = cfg.scale;
+    const saveCfg = () => localStorage.setItem('kite-mapping', JSON.stringify(cfg));
+    $('axis').addEventListener('change', (e) => { cfg.axis = e.target.value; saveCfg(); });
+    $('invert').addEventListener('change', (e) => { cfg.invert = e.target.checked; saveCfg(); });
+    $('scale').addEventListener('change', (e) => { cfg.scale = Number(e.target.value) || 45; saveCfg(); });
+    $('zero').addEventListener('click', () => {
+      if (last) { cfg.neutral = last[cfg.axis] || 0; saveCfg(); }
+    });
+
+    // --- incoming state ---
+    let last = null;       // last raw {alpha,beta,gamma}
+    let lastTs = 0;        // wall-clock arrival time of last packet
+    let pktCount = 0;
+    let phonesConnected = 0;
+    const fmt = (v) => (v == null ? '—' : v.toFixed(1) + '°');
+
+    function steeringValue() {
+      if (!last) return 0;
+      const raw = last[cfg.axis];
+      if (raw == null) return 0;
+      let v = (raw - cfg.neutral) / cfg.scale;     // ~ -1..1 at full deflection
+      if (cfg.invert) v = -v;
+      return Math.max(-1.5, Math.min(1.5, v));     // allow slight overshoot
+    }
+
+    // --- WebSocket ---
+    let ws;
+    function connect() {
+      ws = new WebSocket(`wss://${location.host}/ws`);
+      ws.addEventListener('open', () => ws.send(JSON.stringify({ t: 'hello', role: 'laptop' })));
+      ws.addEventListener('close', () => setTimeout(connect, 1500));
+      ws.addEventListener('error', () => ws.close());
+      ws.addEventListener('message', (ev) => {
+        let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+        if (msg.t === 'ori') {
+          last = { alpha: msg.alpha, beta: msg.beta, gamma: msg.gamma };
+          lastTs = performance.now();
+          pktCount++;
+          $('alpha').textContent = fmt(msg.alpha);
+          $('beta').textContent = fmt(msg.beta);
+          $('gamma').textContent = fmt(msg.gamma);
+          $('latency').textContent = Math.max(0, Date.now() - msg.ts) + ' ms';
+        } else if (msg.t === 'status') {
+          phonesConnected = msg.phones;
+        }
+      });
+    }
+    connect();
+
+    // --- status + rate updates ---
+    setInterval(() => { $('rate').textContent = pktCount + ' Hz'; pktCount = 0; }, 1000);
+    setInterval(() => {
+      const fresh = performance.now() - lastTs < 500;
+      if (ws.readyState !== WebSocket.OPEN) { setStatus('Disconnected from server', ''); }
+      else if (phonesConnected === 0) { setStatus('Connected — waiting for phone', 'warn'); }
+      else if (!fresh) { setStatus('Phone connected — stream stale', 'warn'); }
+      else { setStatus('Live', 'good'); }
+    }, 250);
+    function setStatus(text, cls) {
+      $('status').textContent = text;
+      $('dot').className = 'dot' + (cls ? ' ' + cls : '');
+    }
+
+    // --- SVG visualization ---
+    const SVGNS = 'http://www.w3.org/2000/svg';
+    const stage = $('stage');
+    const W = 600, H = 420, cx = W / 2;
+    function add(tag, attrs) {
+      const el = document.createElementNS(SVGNS, tag);
+      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+      stage.appendChild(el);
+      return el;
+    }
+    // static guides
+    add('line', { x1: cx, y1: 20, x2: cx, y2: H - 20, stroke: '#2a313c', 'stroke-dasharray': '4 6' });
+    add('text', { x: cx, y: 36, fill: '#8b949e', 'text-anchor': 'middle', 'font-size': 13 }).textContent = '12 o\'clock';
+    add('text', { x: W - 12, y: H / 2, fill: '#8b949e', 'text-anchor': 'end', 'font-size': 13 }).textContent = 'RIGHT →';
+    add('text', { x: 12, y: H / 2, fill: '#8b949e', 'font-size': 13 }).textContent = '← LEFT';
+
+    const lineL = add('line', { stroke: '#3fb950', 'stroke-width': 3 });   // kite line left
+    const lineR = add('line', { stroke: '#3fb950', 'stroke-width': 3 });   // kite line right
+    const kite = add('polygon', { points: '0,-16 14,8 0,2 -14,8', fill: '#2f81f7' });
+    const bar = add('rect', { x: -60, y: -6, width: 120, height: 12, rx: 4, fill: '#e6edf3' });
+    const barG = add('g', {});
+    barG.appendChild(bar);
+
+    const barAnchor = { x: cx, y: H - 50 };
+    function render() {
+      const s = steeringValue();             // -1.5..1.5
+      $('steer').textContent = s.toFixed(2);
+
+      // kite slides horizontally near the top; bar rolls about its center.
+      const kiteX = cx + s * (W / 2 - 60);
+      const kiteY = 70;
+      kite.setAttribute('transform', `translate(${kiteX} ${kiteY})`);
+
+      const barAngle = s * 35;               // degrees of bar roll
+      barG.setAttribute('transform', `translate(${barAnchor.x} ${barAnchor.y}) rotate(${barAngle})`);
+
+      // lines from bar ends up to the kite
+      const a = (barAngle * Math.PI) / 180;
+      const halfBar = 60;
+      const lx = barAnchor.x - Math.cos(a) * halfBar;
+      const ly = barAnchor.y - Math.sin(a) * halfBar;
+      const rx = barAnchor.x + Math.cos(a) * halfBar;
+      const ry = barAnchor.y + Math.sin(a) * halfBar;
+      lineL.setAttribute('x1', lx); lineL.setAttribute('y1', ly);
+      lineL.setAttribute('x2', kiteX - 12); lineL.setAttribute('y2', kiteY + 6);
+      lineR.setAttribute('x1', rx); lineR.setAttribute('y1', ry);
+      lineR.setAttribute('x2', kiteX + 12); lineR.setAttribute('y2', kiteY + 6);
+
+      requestAnimationFrame(render);
+    }
+    requestAnimationFrame(render);
+  </script>
+</body>
+</html>
