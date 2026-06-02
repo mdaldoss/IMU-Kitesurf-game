@@ -58,6 +58,20 @@
           <div class="steer-big mono"><span id="steer">0.00</span></div>
         </div>
       </div>
+
+      <div class="panel" style="margin-top:1rem">
+        <h2>Haptic click at 12</h2>
+        <div class="ctrl">
+          <label><input type="checkbox" id="haptics" checked /> Buzz the phone when the kite crosses 12</label>
+        </div>
+        <div class="ctrl">
+          <label for="hyst">Hysteresis band (± steering, prevents chatter)</label>
+          <input type="number" id="hyst" value="0.1" min="0.02" max="0.6" step="0.02" />
+        </div>
+        <div class="ctrl">
+          <label><input type="checkbox" id="tick" checked /> Also play a tick on this laptop</label>
+        </div>
+      </div>
     </div>
 
     <div>
@@ -72,16 +86,22 @@
 
     // --- persisted mapping config ---
     const cfg = Object.assign(
-      { axis: 'beta', invert: false, scale: 45, neutral: 0 },
+      { axis: 'beta', invert: false, scale: 45, neutral: 0, haptics: true, hyst: 0.1, tick: true },
       JSON.parse(localStorage.getItem('kite-mapping') || '{}')
     );
     $('axis').value = cfg.axis;
     $('invert').checked = cfg.invert;
     $('scale').value = cfg.scale;
+    $('haptics').checked = cfg.haptics;
+    $('hyst').value = cfg.hyst;
+    $('tick').checked = cfg.tick;
     const saveCfg = () => localStorage.setItem('kite-mapping', JSON.stringify(cfg));
     $('axis').addEventListener('change', (e) => { cfg.axis = e.target.value; saveCfg(); });
     $('invert').addEventListener('change', (e) => { cfg.invert = e.target.checked; saveCfg(); });
     $('scale').addEventListener('change', (e) => { cfg.scale = Number(e.target.value) || 45; saveCfg(); });
+    $('haptics').addEventListener('change', (e) => { cfg.haptics = e.target.checked; saveCfg(); });
+    $('hyst').addEventListener('change', (e) => { cfg.hyst = Number(e.target.value) || 0.1; saveCfg(); });
+    $('tick').addEventListener('change', (e) => { cfg.tick = e.target.checked; saveCfg(); });
     $('zero').addEventListener('click', () => {
       if (last) { cfg.neutral = last[cfg.axis] || 0; saveCfg(); }
     });
@@ -152,6 +172,8 @@
     }
     // static guides
     add('line', { x1: cx, y1: 20, x2: cx, y2: H - 20, stroke: '#2a313c', 'stroke-dasharray': '4 6' });
+    // brighter line that flashes when the kite crosses 12
+    const centerFlash = add('line', { x1: cx, y1: 20, x2: cx, y2: H - 20, stroke: '#2f81f7', 'stroke-width': 3, opacity: 0 });
     add('text', { x: cx, y: 36, fill: '#8b949e', 'text-anchor': 'middle', 'font-size': 13 }).textContent = '12 o\'clock';
     add('text', { x: W - 12, y: H / 2, fill: '#8b949e', 'text-anchor': 'end', 'font-size': 13 }).textContent = 'RIGHT →';
     add('text', { x: 12, y: H / 2, fill: '#8b949e', 'font-size': 13 }).textContent = '← LEFT';
@@ -163,10 +185,54 @@
     const barG = add('g', {});
     barG.appendChild(bar);
 
+    // --- haptic "click" at 12, with hysteresis ---
+    // Schmitt trigger: the kite must travel past ±hyst to register a side, so
+    // jitter around center can't produce a stream of clicks. One click per
+    // genuine left<->right crossing.
+    let lastSign = 0;            // -1 left, +1 right, 0 = not yet established
+    let flashTs = -1e9;
+    let audioCtx = null;
+    function ensureAudio() {
+      if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch {} }
+      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    }
+    document.addEventListener('pointerdown', ensureAudio);   // unlock audio on first interaction
+    function playTick() {
+      if (!cfg.tick) return;
+      ensureAudio();
+      if (!audioCtx) return;
+      const t = audioCtx.currentTime, osc = audioCtx.createOscillator(), g = audioCtx.createGain();
+      osc.frequency.value = 880;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.3, t + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+      osc.connect(g).connect(audioCtx.destination);
+      osc.start(t); osc.stop(t + 0.09);
+    }
+    function fireClick() {
+      flashTs = performance.now();
+      if (cfg.haptics && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: 'buzz' }));
+      playTick();
+    }
+    function detectCrossing(s) {
+      let sign = lastSign;
+      if (s > cfg.hyst) sign = 1;
+      else if (s < -cfg.hyst) sign = -1;
+      if (sign !== lastSign) {
+        if (lastSign !== 0) fireClick();   // skip the very first side we land on
+        lastSign = sign;
+      }
+    }
+
     const barAnchor = { x: cx, y: H - 50 };
     function render() {
       const s = steeringValue();             // -1.5..1.5
       $('steer').textContent = s.toFixed(2);
+      detectCrossing(s);
+
+      // flash the center line briefly after a crossing
+      const age = performance.now() - flashTs;
+      centerFlash.setAttribute('opacity', age < 300 ? (1 - age / 300).toFixed(3) : 0);
 
       // kite slides horizontally near the top; bar rolls about its center.
       const kiteX = cx + s * (W / 2 - 60);

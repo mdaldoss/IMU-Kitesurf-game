@@ -28,6 +28,7 @@
     <div class="row"><span>beta (pitch)</span><span id="beta" class="mono">—</span></div>
     <div class="row"><span>gamma (roll)</span><span id="gamma" class="mono">—</span></div>
     <div class="row"><span>sending</span><span id="rate" class="mono">0 Hz</span></div>
+    <div class="row"><span>haptics</span><span id="haptic" class="mono">—</span></div>
   </div>
 
   <p id="msg"></p>
@@ -46,12 +47,34 @@
       $('dot').className = 'dot' + (cls ? ' ' + cls : '');
     }
 
+    const canVibrate = typeof navigator.vibrate === 'function';
+    $('haptic').textContent = canVibrate ? 'supported' : 'not supported (iOS web has no vibration)';
+
+    let hapticFlash = 0;
+    function click() {
+      // A short pulse feels like a "click". No-op on browsers without the API.
+      if (canVibrate) navigator.vibrate(20);
+      hapticFlash = Date.now();
+      $('haptic').textContent = canVibrate ? '● click' : 'click (no motor)';
+    }
+    // Reset the flashed label shortly after a click.
+    setInterval(() => {
+      if (hapticFlash && Date.now() - hapticFlash > 250) {
+        hapticFlash = 0;
+        $('haptic').textContent = canVibrate ? 'supported' : 'not supported (iOS web has no vibration)';
+      }
+    }, 100);
+
     function connect() {
       ws = new WebSocket(`wss://${location.host}/ws`);
       ws.addEventListener('open', () => {
         reconnectDelay = 1000;
         ws.send(JSON.stringify({ t: 'hello', role: 'phone' }));
         setStatus('Connected — streaming', 'good');
+      });
+      ws.addEventListener('message', (ev) => {
+        let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+        if (msg.t === 'buzz') click();
       });
       ws.addEventListener('close', () => {
         setStatus('Disconnected — retrying…', 'warn');

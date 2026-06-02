@@ -54,6 +54,20 @@ Hold the phone **landscape, flat, screen up, speaker edge to the right**.
    switch the **axis** (default is `beta` for this landscape grip). Adjust
    **full deflection** to taste. Settings persist across reloads.
 
+### Haptic "click" at 12 o'clock
+
+When the kite crosses the 12 o'clock center line, the laptop sends a `buzz`
+back through the relay and the phone vibrates a short "click". A hysteresis
+band (configurable on the laptop) means the kite must travel past ±band to
+register a side, so jitter around center can't produce a stream of clicks —
+you get one click per genuine left↔right crossing. The laptop also flashes the
+center line and (optionally) plays a tick so you can confirm it without an
+Android phone in hand.
+
+> Heads-up: the Web Vibration API works on Android Chrome but **not on iOS
+> Safari** (iOS web has no vibration). On iOS you'll still see the laptop flash
+> and hear the tick, but the phone won't buzz.
+
 ### Fallback: ngrok (clean HTTPS, needs internet)
 
 If a device refuses the self-signed cert, expose the server through a tunnel:

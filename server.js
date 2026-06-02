@@ -125,6 +125,14 @@ wss.on('connection', (ws) => {
         if (laptop.readyState === laptop.OPEN) laptop.send(payload);
       }
     }
+
+    // Relay haptic "click" requests from laptops back to all phones.
+    if (msg.t === 'buzz' && ws.role === 'laptop') {
+      const payload = data.toString();
+      for (const phone of phones) {
+        if (phone.readyState === phone.OPEN) phone.send(payload);
+      }
+    }
   });
 
   ws.on('close', () => {
