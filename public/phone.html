@@ -45,6 +45,7 @@
 
   <p id="msg"></p>
   <p class="hint">Keep this page open and the screen awake while testing.</p>
+  <p id="hapticHint" class="hint" style="display:none"></p>
 
   <!-- iOS Safari has no Vibration API, but toggling a `switch`-styled checkbox
        via a programmatic label click produces a system haptic tap (iOS 17.4+).
@@ -83,6 +84,20 @@
       : 'none';
     $('haptic').textContent = hapticMode;
 
+    // Browser-mode caveats: tell the user what to check if a tap does nothing.
+    const hint = $('hapticHint');
+    if (hapticMode === 'vibration') {
+      hint.style.display = '';
+      hint.textContent = 'Android browser: if “Test haptic now” flashes blue but does not buzz, ' +
+        'check Settings → Sound & vibration → vibration/haptics is ON, and the phone is not in a ' +
+        'no-vibrate mode. The native app (mobile/) drives the motor directly and is more reliable.';
+    } else if (hapticMode === 'ios-switch') {
+      hint.style.display = '';
+      hint.textContent = 'iPhone browser: haptics only fire from a direct tap here, never from the ' +
+        'tilt-triggered event — that is an iOS Safari limitation. Use the native app (mobile/) for ' +
+        'haptics that follow the kite.';
+    }
+
     // The native app loads from capacitor://localhost and must be told where the
     // laptop is; a browser served by the laptop just uses its own origin.
     const servedByLaptop = !isNative && location.protocol.startsWith('http') && location.host;
@@ -119,11 +134,15 @@
       let result;
       if (hapticMode === 'native') {
         // ImpactStyle.Medium — a crisp tap. Works from async callbacks natively.
-        cap.Plugins.Haptics.impact({ style: 'MEDIUM' }).catch(() => {});
+        cap.Plugins.Haptics.impact({ style: 'MEDIUM' }).catch((e) => {
+          $('result').textContent = `${source}: native error: ${e.message || e}`;
+        });
         result = 'native impact';
       } else if (hapticMode === 'vibration') {
-        const ok = navigator.vibrate(40);           // 40ms — clearly feelable
-        result = `vibrate→${ok}`;
+        // A longer double-buzz so weak motors register; `test` is stronger still.
+        const pattern = source === 'test' ? [0, 120, 60, 120] : [0, 60];
+        const ok = navigator.vibrate(pattern);
+        result = `vibrate(${pattern.join(',')})→${ok}`;
       } else if (hapticMode === 'ios-switch') {
         try { iosLabel.click(); result = 'switch toggled'; }
         catch (e) { result = 'switch error: ' + e.message; }
