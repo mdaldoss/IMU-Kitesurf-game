@@ -1,0 +1,6 @@
+node_modules/
+# Generated native projects (recreate with `npm run add:ios` / `add:android`)
+ios/
+android/
+# Generated from ../public by copy-web.mjs
+www/

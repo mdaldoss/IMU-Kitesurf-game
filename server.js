@@ -13,6 +13,7 @@
 // Node relay exists.
 
 import https from 'node:https';
+import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -24,7 +25,8 @@ import qrcode from 'qrcode-terminal';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const PORT = Number(process.env.PORT) || 8443;
+const PORT = Number(process.env.PORT) || 8443;          // HTTPS (browsers)
+const PLAIN_PORT = Number(process.env.PLAIN_PORT) || 8080; // HTTP/WS (native app)
 
 // --- 1. LAN IPv4 discovery ------------------------------------------------
 function lanIPv4Addresses() {
@@ -70,26 +72,28 @@ function resolveStaticPath(urlPath) {
   return resolved;
 }
 
-const server = https.createServer(
-  { key: pems.private, cert: pems.cert },
-  async (req, res) => {
-    const filePath = resolveStaticPath(req.url);
-    if (!filePath) {
-      res.writeHead(403).end('Forbidden');
-      return;
-    }
-    try {
-      await readFile(filePath); // existence check (throws if missing)
-      res.writeHead(200, { 'Content-Type': CONTENT_TYPES[path.extname(filePath)] || 'application/octet-stream' });
-      createReadStream(filePath).pipe(res);
-    } catch {
-      res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Not found');
-    }
+async function handleRequest(req, res) {
+  const filePath = resolveStaticPath(req.url);
+  if (!filePath) {
+    res.writeHead(403).end('Forbidden');
+    return;
   }
-);
+  try {
+    await readFile(filePath); // existence check (throws if missing)
+    res.writeHead(200, { 'Content-Type': CONTENT_TYPES[path.extname(filePath)] || 'application/octet-stream' });
+    createReadStream(filePath).pipe(res);
+  } catch {
+    res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Not found');
+  }
+}
+
+// HTTPS for browsers (sensors need a secure context).
+const server = https.createServer({ key: pems.private, cert: pems.cert }, handleRequest);
+// Plain HTTP for the native (Capacitor) app: a native WebView can't click
+// "proceed anyway" past a self-signed cert, so it talks cleartext over the LAN.
+const httpServer = http.createServer(handleRequest);
 
 // --- 4. WebSocket relay ----------------------------------------------------
-const wss = new WebSocketServer({ server, path: '/ws' });
 const phones = new Set();
 const laptops = new Set();
 
@@ -102,7 +106,7 @@ function broadcastStatus() {
   }
 }
 
-wss.on('connection', (ws) => {
+function onConnection(ws) {
   ws.isAlive = true;
   ws.role = null;
   ws.on('pong', () => { ws.isAlive = true; });
@@ -125,6 +129,14 @@ wss.on('connection', (ws) => {
         if (laptop.readyState === laptop.OPEN) laptop.send(payload);
       }
     }
+
+    // Relay haptic "click" requests from laptops back to all phones.
+    if (msg.t === 'buzz' && ws.role === 'laptop') {
+      const payload = data.toString();
+      for (const phone of phones) {
+        if (phone.readyState === phone.OPEN) phone.send(payload);
+      }
+    }
   });
 
   ws.on('close', () => {
@@ -133,17 +145,26 @@ wss.on('connection', (ws) => {
     broadcastStatus();
   });
   ws.on('error', () => {});
-});
+}
+
+// Both transports share the same relay sets, so a native phone and a browser
+// laptop (or any mix) interoperate.
+const wssSecure = new WebSocketServer({ server, path: '/ws' });
+const wssPlain = new WebSocketServer({ server: httpServer, path: '/ws' });
+wssSecure.on('connection', onConnection);
+wssPlain.on('connection', onConnection);
 
 // Heartbeat: drop sockets that stop responding so status stays honest.
 const heartbeat = setInterval(() => {
-  for (const ws of wss.clients) {
-    if (!ws.isAlive) { ws.terminate(); continue; }
-    ws.isAlive = false;
-    ws.ping();
+  for (const wss of [wssSecure, wssPlain]) {
+    for (const ws of wss.clients) {
+      if (!ws.isAlive) { ws.terminate(); continue; }
+      ws.isAlive = false;
+      ws.ping();
+    }
   }
 }, 10_000);
-wss.on('close', () => clearInterval(heartbeat));
+wssSecure.on('close', () => clearInterval(heartbeat));
 
 // --- start ----------------------------------------------------------------
 server.listen(PORT, () => {
@@ -160,4 +181,11 @@ server.listen(PORT, () => {
   console.log('\n  Scan this QR on the phone (then tap "proceed anyway" past the cert warning):\n');
   qrcode.generate(phoneUrl, { small: true });
   console.log('\n  Both devices must be on the same network. Ctrl+C to stop.\n');
+});
+
+httpServer.listen(PLAIN_PORT, () => {
+  const host = lanIPs[0] || 'localhost';
+  console.log(`  Native app (Capacitor) connects over cleartext LAN:`);
+  console.log(`    laptop address to enter in the app : ${host}:${PLAIN_PORT}`);
+  console.log(`    (relay endpoint: ws://${host}:${PLAIN_PORT}/ws)\n`);
 });

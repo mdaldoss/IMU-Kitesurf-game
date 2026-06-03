@@ -54,6 +54,79 @@ Hold the phone **landscape, flat, screen up, speaker edge to the right**.
    switch the **axis** (default is `beta` for this landscape grip). Adjust
    **full deflection** to taste. Settings persist across reloads.
 
+### Haptic "click" at 12 o'clock
+
+When the kite crosses the 12 o'clock center line, the laptop sends a `buzz`
+back through the relay and the phone vibrates a short "click". A hysteresis
+band (configurable on the laptop) means the kite must travel past ±band to
+register a side, so jitter around center can't produce a stream of clicks —
+you get one click per genuine left↔right crossing. The laptop also flashes the
+center line and (optionally) plays a tick so you can confirm it without an
+Android phone in hand.
+
+**Reliable haptics (iPhone + Android): the native app.** Mobile browsers can't
+fire haptics from a background WebSocket event (iOS Safari especially). For real,
+dependable haptics, run the phone page inside the **Capacitor native shell** in
+[`mobile/`](mobile/README.md) — same `public/phone.html`, but it detects the
+native runtime and uses the OS haptics plugin (`haptic mode: native`). The app
+connects to the laptop over cleartext `ws://` on the LAN (server prints the
+address). This is the recommended path for iPhone.
+
+The browser fallbacks below still work without installing anything:
+
+**iPhone (browser) support:** iOS Safari has no Vibration API, so the phone falls
+back to the "switch haptic" trick — programmatically toggling a hidden
+`switch`-styled checkbox produces a system haptic tap on **iOS 17.4+ Safari**.
+This often only fires from a direct tap, not a network event, which is why the
+native app exists. The phone page's
+`haptic mode` line shows which path is active (`vibration` on Android,
+`ios-switch` on iPhone).
+
+**Troubleshooting haptics (they can fail silently):** the phone page shows
+`buzz received` and `last haptic call`, and there's a **Test haptic now** button.
+Use them to localize a problem:
+
+- *Test button buzzes, network buzzes don't, but `buzz received` increments* —
+  the message arrives but the OS blocks haptics outside a direct tap. This is
+  common: Android needs a prior interaction (the Enable tap covers it) and
+  **iOS's switch trick generally only fires from a real touch, not an async
+  network callback** — so iPhone network-triggered haptics may simply not be
+  possible from the web.
+- *`buzz received` does not increment* — the click isn't reaching the phone;
+  check that the laptop's `clicks sent` is going up (i.e. the kite is actually
+  crossing 12) and that both sockets are connected.
+- *`buzz received` increments and the screen flashes blue, but no vibration* —
+  the device/OS isn't vibrating (too-short pulse, silent mode, iOS < 17.4, or
+  the switch trick unsupported).
+
+The screen flashes blue on every received buzz regardless of haptic success, so
+you can always confirm the network path.
+
+### Kite flight model
+
+With **Flight physics** on (default), the kite flies on a **wind window** (an arc
+centred on the rider) and the bar sets the **turn rate**, not a fixed position —
+just like a real kite:
+
+- Hold the bar tilted and the kite keeps flying to that side until it **crashes
+  into the water** at the edge → **double buzz**.
+- A crashed kite is held down by **water friction**: steering back toward the
+  centre peels it off slowly, and only if there's **enough wind**. Once it's off
+  the water it flies normally again.
+- Crossing **12 o'clock** (the zenith) still gives a single buzz.
+
+Controls (laptop, persisted):
+
+- **Wind strength** (kn) — scales how fast the kite flies; too little wind and a
+  crashed kite won't relaunch.
+- **Gust intensity** (%) — smoothly varying gusts on top of the base wind (shown
+  live as `wind … kn`).
+- **Steering response** (°/s at full bar) — how aggressively the bar turns the
+  kite.
+
+Turn **Flight physics off** to map the bar directly to a window angle (no
+inertia, no crashes) — handy for re-checking the orientation/axis.
+
 ### Fallback: ngrok (clean HTTPS, needs internet)
 
 If a device refuses the self-signed cert, expose the server through a tunnel:
