@@ -12,4 +12,9 @@ const www = join(here, 'www');
 await mkdir(www, { recursive: true });
 await copyFile(join(publicDir, 'phone.html'), join(www, 'index.html'));
 await copyFile(join(publicDir, 'style.css'), join(www, 'style.css'));
-console.log('Copied public/phone.html -> mobile/www/index.html (+ style.css)');
+
+// Shared ES modules imported by the phone pages (bar power, physics, spots).
+for (const mod of ['bar-pull.js', 'kite-physics.js', 'wind-spots.js']) {
+  await copyFile(join(publicDir, mod), join(www, mod));
+}
+console.log('Copied public/phone.html -> mobile/www/index.html (+ style.css + modules)');

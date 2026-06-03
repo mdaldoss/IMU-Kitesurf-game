@@ -55,9 +55,12 @@
     <input id="iosHapticSwitch" type="checkbox" switch />
   </label>
 
-  <script>
+  <script type="module">
+    import { createBarPull } from '/bar-pull.js';
+
     const $ = (id) => document.getElementById(id);
     const SEND_HZ = 50;
+    const barPull = createBarPull();   // vertical phone motion -> bar power (0..1)
     let latest = null;       // most recent reading {alpha,beta,gamma,abs}
     let ws = null;
     let sentCount = 0;
@@ -201,7 +204,7 @@
     setInterval(() => {
       if (!ws || ws.readyState !== WebSocket.OPEN || !latest) return;
       if (ws.bufferedAmount > 1024) return; // backpressure guard
-      ws.send(JSON.stringify({ t: 'ori', ts: Date.now(), ...latest }));
+      ws.send(JSON.stringify({ t: 'ori', ts: Date.now(), ...latest, pull: barPull.read() }));
       sentCount++;
     }, Math.round(1000 / SEND_HZ));
 
@@ -231,6 +234,10 @@
         window.addEventListener('deviceorientationabsolute', onOrientation);
       }
       window.addEventListener('deviceorientation', onOrientation);
+
+      // Bar power: pull/raise the phone vertically -> streamed `pull` value.
+      // Same user gesture covers the iOS DeviceMotion permission prompt.
+      barPull.start();
 
       $('enable').textContent = 'Sensors enabled';
       $('enable').disabled = true;
