@@ -102,13 +102,30 @@ Use them to localize a problem:
 The screen flashes blue on every received buzz regardless of haptic success, so
 you can always confirm the network path.
 
-### Kite lag
+### Kite flight model
 
-The bar responds to your tilt instantly; the **kite trails it**, like a real
-kite swinging through the window under wind/line/size inertia. It's a first-order
-lag with a tunable **response time** (seconds to mostly catch up). Toggle it off
-to make the kite track the bar exactly. The 12 o'clock haptic fires when the
-*kite* crosses center, so with lag enabled the click trails the bar motion.
+With **Flight physics** on (default), the kite flies on a **wind window** (an arc
+centred on the rider) and the bar sets the **turn rate**, not a fixed position —
+just like a real kite:
+
+- Hold the bar tilted and the kite keeps flying to that side until it **crashes
+  into the water** at the edge → **double buzz**.
+- A crashed kite is held down by **water friction**: steering back toward the
+  centre peels it off slowly, and only if there's **enough wind**. Once it's off
+  the water it flies normally again.
+- Crossing **12 o'clock** (the zenith) still gives a single buzz.
+
+Controls (laptop, persisted):
+
+- **Wind strength** (kn) — scales how fast the kite flies; too little wind and a
+  crashed kite won't relaunch.
+- **Gust intensity** (%) — smoothly varying gusts on top of the base wind (shown
+  live as `wind … kn`).
+- **Steering response** (°/s at full bar) — how aggressively the bar turns the
+  kite.
+
+Turn **Flight physics off** to map the bar directly to a window angle (no
+inertia, no crashes) — handy for re-checking the orientation/axis.
 
 ### Fallback: ngrok (clean HTTPS, needs internet)
 

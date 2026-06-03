@@ -152,11 +152,13 @@
       $('result').textContent = `${source}: ${result}`;
     }
 
-    function onBuzz() {
+    function onBuzz(msg) {
       recvCount++;
       $('recv').textContent = recvCount;
       flashScreen();
-      doHaptic('buzz');
+      // n>1 means a crash (double buzz); space the pulses so they're distinct.
+      const n = msg && msg.n > 1 ? Math.min(msg.n, 3) : 1;
+      for (let i = 0; i < n; i++) setTimeout(() => doHaptic(n > 1 ? 'crash' : 'buzz'), i * 160);
     }
 
     // Manual test from a real user gesture — the most permissive context for
@@ -174,7 +176,7 @@
       });
       ws.addEventListener('message', (ev) => {
         let msg; try { msg = JSON.parse(ev.data); } catch { return; }
-        if (msg.t === 'buzz') onBuzz();
+        if (msg.t === 'buzz') onBuzz(msg);
       });
       ws.addEventListener('close', () => {
         setStatus('Disconnected — retrying…', 'warn');

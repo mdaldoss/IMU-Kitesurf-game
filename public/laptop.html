@@ -67,7 +67,7 @@
         </div>
         <div class="ctrl">
           <label for="hyst">Hysteresis band (± steering, prevents chatter)</label>
-          <input type="number" id="hyst" value="0.1" min="0.02" max="0.6" step="0.02" />
+          <input type="number" id="hyst" value="0.06" min="0.02" max="0.6" step="0.02" />
         </div>
         <div class="ctrl">
           <label><input type="checkbox" id="tick" checked /> Also play a tick on this laptop</label>
@@ -75,13 +75,25 @@
       </div>
 
       <div class="panel" style="margin-top:1rem">
-        <h2>Kite dynamics</h2>
+        <h2>Kite flight</h2>
         <div class="ctrl">
-          <label><input type="checkbox" id="lag" checked /> Kite lag (kite trails the bar)</label>
+          <label><input type="checkbox" id="physics" checked /> Flight physics (bar = turn rate; kite crashes &amp; relaunches)</label>
         </div>
         <div class="ctrl">
-          <label for="lagTau">Response time — seconds to mostly catch up</label>
-          <input type="number" id="lagTau" value="0.6" min="0.1" max="3" step="0.1" />
+          <label for="wind">Wind strength — <span id="windVal">18</span> kn</label>
+          <input type="range" id="wind" value="18" min="4" max="40" step="1" style="width:100%" />
+        </div>
+        <div class="ctrl">
+          <label for="gust">Gust intensity — <span id="gustVal">20</span>%</label>
+          <input type="range" id="gust" value="20" min="0" max="100" step="5" style="width:100%" />
+        </div>
+        <div class="ctrl">
+          <label for="turn">Steering response — <span id="turnVal">90</span> °/s at full bar</label>
+          <input type="range" id="turn" value="90" min="20" max="200" step="10" style="width:100%" />
+        </div>
+        <div class="ctrl">
+          <label>Kite state</label>
+          <div class="mono"><span id="kstate">flying</span> · θ <span id="theta">0</span>° · wind <span id="windNow">18</span> kn</div>
         </div>
       </div>
     </div>
@@ -98,27 +110,32 @@
 
     // --- persisted mapping config ---
     const cfg = Object.assign(
-      { axis: 'beta', invert: false, scale: 45, neutral: 0, haptics: true, hyst: 0.1, tick: true,
-        lag: true, lagTau: 0.6 },
+      { axis: 'beta', invert: false, scale: 45, neutral: 0, haptics: true, hyst: 0.06, tick: true,
+        physics: true, wind: 18, gust: 20, turn: 90 },
       JSON.parse(localStorage.getItem('kite-mapping') || '{}')
     );
+    if (cfg.hyst === 0.1) cfg.hyst = 0.06;   // nudge down from the old default
     $('axis').value = cfg.axis;
     $('invert').checked = cfg.invert;
     $('scale').value = cfg.scale;
     $('haptics').checked = cfg.haptics;
     $('hyst').value = cfg.hyst;
     $('tick').checked = cfg.tick;
-    $('lag').checked = cfg.lag;
-    $('lagTau').value = cfg.lagTau;
+    $('physics').checked = cfg.physics;
+    $('wind').value = cfg.wind; $('windVal').textContent = cfg.wind;
+    $('gust').value = cfg.gust; $('gustVal').textContent = cfg.gust;
+    $('turn').value = cfg.turn; $('turnVal').textContent = cfg.turn;
     const saveCfg = () => localStorage.setItem('kite-mapping', JSON.stringify(cfg));
     $('axis').addEventListener('change', (e) => { cfg.axis = e.target.value; saveCfg(); });
     $('invert').addEventListener('change', (e) => { cfg.invert = e.target.checked; saveCfg(); });
     $('scale').addEventListener('change', (e) => { cfg.scale = Number(e.target.value) || 45; saveCfg(); });
     $('haptics').addEventListener('change', (e) => { cfg.haptics = e.target.checked; saveCfg(); });
-    $('hyst').addEventListener('change', (e) => { cfg.hyst = Number(e.target.value) || 0.1; saveCfg(); });
+    $('hyst').addEventListener('change', (e) => { cfg.hyst = Number(e.target.value) || 0.06; saveCfg(); });
     $('tick').addEventListener('change', (e) => { cfg.tick = e.target.checked; saveCfg(); });
-    $('lag').addEventListener('change', (e) => { cfg.lag = e.target.checked; saveCfg(); });
-    $('lagTau').addEventListener('change', (e) => { cfg.lagTau = Number(e.target.value) || 0.6; saveCfg(); });
+    $('physics').addEventListener('change', (e) => { cfg.physics = e.target.checked; saveCfg(); });
+    $('wind').addEventListener('input', (e) => { cfg.wind = Number(e.target.value); $('windVal').textContent = cfg.wind; saveCfg(); });
+    $('gust').addEventListener('input', (e) => { cfg.gust = Number(e.target.value); $('gustVal').textContent = cfg.gust; saveCfg(); });
+    $('turn').addEventListener('input', (e) => { cfg.turn = Number(e.target.value); $('turnVal').textContent = cfg.turn; saveCfg(); });
     $('zero').addEventListener('click', () => {
       if (last) { cfg.neutral = last[cfg.axis] || 0; saveCfg(); }
     });
@@ -187,18 +204,37 @@
       stage.appendChild(el);
       return el;
     }
-    // static guides
-    add('line', { x1: cx, y1: 20, x2: cx, y2: H - 20, stroke: '#2a313c', 'stroke-dasharray': '4 6' });
-    // brighter line that flashes when the kite crosses 12
-    const centerFlash = add('line', { x1: cx, y1: 20, x2: cx, y2: H - 20, stroke: '#2f81f7', 'stroke-width': 3, opacity: 0 });
-    add('text', { x: cx, y: 36, fill: '#8b949e', 'text-anchor': 'middle', 'font-size': 13 }).textContent = '12 o\'clock';
-    add('text', { x: W - 12, y: H / 2, fill: '#8b949e', 'text-anchor': 'end', 'font-size': 13 }).textContent = 'RIGHT →';
-    add('text', { x: 12, y: H / 2, fill: '#8b949e', 'font-size': 13 }).textContent = '← LEFT';
+    // The kite flies on the "wind window" — an arc centred on the rider at the
+    // bottom. theta is the angle from the zenith (12 o'clock): 0 = straight up,
+    // negative = left, positive = right; the kite crashes into the water at the
+    // horizontal edges (±thetaMax).
+    const pivot = { x: cx, y: H - 60 };
+    const R = 295;
+    const thetaMax = 88;
+    const toXY = (thetaDeg) => {
+      const a = thetaDeg * Math.PI / 180;
+      return { x: pivot.x + R * Math.sin(a), y: pivot.y - R * Math.cos(a) };
+    };
 
-    const lineL = add('line', { stroke: '#3fb950', 'stroke-width': 3 });   // kite line left
-    const lineR = add('line', { stroke: '#3fb950', 'stroke-width': 3 });   // kite line right
+    // water + horizon
+    add('rect', { x: 0, y: pivot.y, width: W, height: H - pivot.y, fill: 'rgba(47,129,247,0.18)' });
+    add('line', { x1: 0, y1: pivot.y, x2: W, y2: pivot.y, stroke: '#2f81f7', 'stroke-width': 1.5, opacity: 0.5 });
+    // wind-window arc
+    const edgeL = toXY(-thetaMax), edgeR = toXY(thetaMax);
+    add('path', { d: `M ${edgeL.x} ${edgeL.y} A ${R} ${R} 0 0 1 ${edgeR.x} ${edgeR.y}`, fill: 'none', stroke: '#2a313c', 'stroke-dasharray': '5 7' });
+    // zenith (12 o'clock) marker + flash ring
+    const zen = toXY(0);
+    add('line', { x1: zen.x, y1: zen.y - 14, x2: zen.x, y2: zen.y + 14, stroke: '#2a313c' });
+    add('text', { x: zen.x, y: zen.y - 20, fill: '#8b949e', 'text-anchor': 'middle', 'font-size': 13 }).textContent = '12';
+    const centerFlash = add('circle', { cx: zen.x, cy: zen.y, r: 16, fill: 'none', stroke: '#2f81f7', 'stroke-width': 3, opacity: 0 });
+    add('text', { x: 14, y: pivot.y - 8, fill: '#8b949e', 'font-size': 12 }).textContent = '← water';
+    add('text', { x: W - 14, y: pivot.y - 8, fill: '#8b949e', 'text-anchor': 'end', 'font-size': 12 }).textContent = 'water →';
+
+    const lineL = add('line', { stroke: '#3fb950', 'stroke-width': 2 });   // kite line left
+    const lineR = add('line', { stroke: '#3fb950', 'stroke-width': 2 });   // kite line right
     const kite = add('polygon', { points: '0,-16 14,8 0,2 -14,8', fill: '#2f81f7' });
-    const bar = add('rect', { x: -60, y: -6, width: 120, height: 12, rx: 4, fill: '#e6edf3' });
+    add('circle', { cx: pivot.x, cy: pivot.y, r: 5, fill: '#e6edf3' });    // rider
+    const bar = add('rect', { x: -34, y: -5, width: 68, height: 10, rx: 4, fill: '#e6edf3' });
     const barG = add('g', {});
     barG.appendChild(bar);
 
@@ -208,6 +244,7 @@
     // genuine left<->right crossing.
     let lastSign = 0;            // -1 left, +1 right, 0 = not yet established
     let flashTs = -1e9;
+    let crashFlash = -1e9;
     let audioCtx = null;
     function ensureAudio() {
       if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch {} }
@@ -227,13 +264,21 @@
       osc.start(t); osc.stop(t + 0.09);
     }
     let clicksSent = 0;
-    function fireClick() {
-      flashTs = performance.now();
+    function sendBuzz(n) {
       if (cfg.haptics && ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ t: 'buzz' }));
+        ws.send(JSON.stringify({ t: 'buzz', n }));   // n=2 => double buzz (crash)
         $('clicks').textContent = ++clicksSent;
       }
+    }
+    function fireClick() {                            // crossing 12 o'clock
+      flashTs = performance.now();
+      sendBuzz(1);
       playTick();
+    }
+    function fireCrash() {                            // kite hits the water
+      flashTs = crashFlash = performance.now();
+      sendBuzz(2);
+      playTick(); setTimeout(playTick, 150);
     }
     function detectCrossing(s) {
       let sign = lastSign;
@@ -245,52 +290,83 @@
       }
     }
 
-    const barAnchor = { x: cx, y: H - 50 };
-    let kitePos = 0;                          // lagged kite position, eases toward target
+    const halfBar = 34;
+    const WIND_REF = 18;        // reference wind (kn) at which "turn" is calibrated
+    const MIN_WIND = 6;         // below this the kite can't relaunch off the water
+    const RELAUNCH_DRAG = 0.35; // how sluggishly it peels off the water
+    let theta = 0;              // kite angle from zenith (deg)
+    let crashed = false, crashSide = 0;
     let lastFrame = performance.now();
+
+    // Smoothly varying wind: base strength plus gusts (sum of sines, scaled by
+    // the gust slider). Deterministic and jitter-free.
+    function effectiveWind(tSec) {
+      const g = (cfg.gust / 100) * 0.6;
+      const f = g * (0.6 * Math.sin(tSec * 0.7) + 0.4 * Math.sin(tSec * 1.9 + 1.3));
+      return Math.max(1, Math.min(60, cfg.wind * (1 + f)));
+    }
+
     function render() {
       const now = performance.now();
-      const dt = Math.min(0.1, (now - lastFrame) / 1000);   // clamp big gaps (tab switch)
+      const dt = Math.min(0.05, (now - lastFrame) / 1000);   // clamp big gaps
       lastFrame = now;
+      const tSec = now / 1000;
 
-      const target = steeringValue();          // -1.5..1.5, where the bar points (instant)
-      $('steer').textContent = target.toFixed(2);
+      const steer = Math.max(-1, Math.min(1, steeringValue())); // bar input (instant)
+      $('steer').textContent = steer.toFixed(2);
+      const wind = cfg.physics ? effectiveWind(tSec) : cfg.wind;
 
-      // The bar responds instantly; the kite trails it (wind/line/size inertia).
-      // First-order lag: ease kitePos toward target with time constant lagTau.
-      if (cfg.lag) {
-        const k = 1 - Math.exp(-dt / Math.max(0.05, cfg.lagTau));
-        kitePos += (target - kitePos) * k;
+      if (!cfg.physics) {
+        // Direct mapping — bar angle = window angle. Good for orientation checks.
+        theta = steer * thetaMax;
+        crashed = false; crashSide = 0;
       } else {
-        kitePos = target;
+        // Bar sets the TURN RATE; hold it over and the kite keeps flying to the
+        // edge and crashes. Wind scales how fast it flies.
+        let rate = cfg.turn * steer * (wind / WIND_REF);       // deg/s
+        if (crashed) {
+          // Water friction: only steering away from the edge peels it off, and
+          // only slowly, and only with enough wind to relaunch.
+          const away = -crashSide * steer;                     // >0 toward centre
+          rate = (wind < MIN_WIND || away <= 0)
+            ? 0
+            : cfg.turn * (-crashSide) * Math.abs(steer) * (wind / WIND_REF) * RELAUNCH_DRAG;
+        }
+        theta += rate * dt;
+
+        if (!crashed && Math.abs(theta) >= thetaMax) {
+          theta = Math.sign(theta) * thetaMax;
+          crashed = true; crashSide = Math.sign(theta);
+          fireCrash();                                          // double buzz
+        } else if (crashed && Math.abs(theta) < thetaMax - 10) {
+          crashed = false; crashSide = 0;                       // back in the air
+        }
+        theta = Math.max(-thetaMax, Math.min(thetaMax, theta));
       }
 
-      // Click fires when the *kite* crosses 12, so with lag the click trails the bar.
-      detectCrossing(kitePos);
+      // crossing 12 (single buzz); normalize so hysteresis stays in bar units
+      if (!crashed) detectCrossing(theta / thetaMax);
 
-      // flash the center line briefly after a crossing
-      const age = performance.now() - flashTs;
-      centerFlash.setAttribute('opacity', age < 300 ? (1 - age / 300).toFixed(3) : 0);
+      const fAge = performance.now() - flashTs;
+      centerFlash.setAttribute('opacity', fAge < 300 ? (1 - fAge / 300).toFixed(3) : 0);
+      kite.setAttribute('fill', crashed ? '#f85149' : '#2f81f7');
 
-      // kite slides horizontally near the top (lagged); bar rolls instantly.
-      const kiteX = cx + kitePos * (W / 2 - 60);
-      const kiteY = 70;
-      kite.setAttribute('transform', `translate(${kiteX} ${kiteY})`);
+      // place kite on the window arc, nose pointing outward
+      const p = toXY(theta);
+      kite.setAttribute('transform', `translate(${p.x} ${p.y}) rotate(${theta})`);
 
-      const barAngle = target * 35;            // degrees of bar roll (instant)
-      barG.setAttribute('transform', `translate(${barAnchor.x} ${barAnchor.y}) rotate(${barAngle})`);
+      // bar rolls instantly at the rider; lines run from the bar ends to the kite
+      const barAngle = steer * 35;
+      barG.setAttribute('transform', `translate(${pivot.x} ${pivot.y}) rotate(${barAngle})`);
+      const a = barAngle * Math.PI / 180;
+      lineL.setAttribute('x1', pivot.x - Math.cos(a) * halfBar); lineL.setAttribute('y1', pivot.y - Math.sin(a) * halfBar);
+      lineL.setAttribute('x2', p.x); lineL.setAttribute('y2', p.y);
+      lineR.setAttribute('x1', pivot.x + Math.cos(a) * halfBar); lineR.setAttribute('y1', pivot.y + Math.sin(a) * halfBar);
+      lineR.setAttribute('x2', p.x); lineR.setAttribute('y2', p.y);
 
-      // lines from bar ends up to the kite
-      const a = (barAngle * Math.PI) / 180;
-      const halfBar = 60;
-      const lx = barAnchor.x - Math.cos(a) * halfBar;
-      const ly = barAnchor.y - Math.sin(a) * halfBar;
-      const rx = barAnchor.x + Math.cos(a) * halfBar;
-      const ry = barAnchor.y + Math.sin(a) * halfBar;
-      lineL.setAttribute('x1', lx); lineL.setAttribute('y1', ly);
-      lineL.setAttribute('x2', kiteX - 12); lineL.setAttribute('y2', kiteY + 6);
-      lineR.setAttribute('x1', rx); lineR.setAttribute('y1', ry);
-      lineR.setAttribute('x2', kiteX + 12); lineR.setAttribute('y2', kiteY + 6);
+      $('theta').textContent = theta.toFixed(0);
+      $('windNow').textContent = wind.toFixed(0);
+      $('kstate').textContent = crashed ? ('crashed ' + (crashSide < 0 ? 'L' : 'R')) : 'flying';
 
       requestAnimationFrame(render);
     }
