@@ -31,6 +31,7 @@
         <div class="row"><span>alpha</span><span id="alpha" class="mono">—</span></div>
         <div class="row"><span>beta</span><span id="beta" class="mono">—</span></div>
         <div class="row"><span>gamma</span><span id="gamma" class="mono">—</span></div>
+        <div class="row"><span>clicks sent</span><span id="clicks" class="mono">0</span></div>
       </div>
 
       <div class="panel" style="margin-top:1rem">
@@ -225,9 +226,13 @@
       osc.connect(g).connect(audioCtx.destination);
       osc.start(t); osc.stop(t + 0.09);
     }
+    let clicksSent = 0;
     function fireClick() {
       flashTs = performance.now();
-      if (cfg.haptics && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: 'buzz' }));
+      if (cfg.haptics && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ t: 'buzz' }));
+        $('clicks').textContent = ++clicksSent;
+      }
       playTick();
     }
     function detectCrossing(s) {

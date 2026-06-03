@@ -67,9 +67,28 @@ Android phone in hand.
 **iPhone support:** iOS Safari has no Vibration API, so the phone falls back to
 the "switch haptic" trick — programmatically toggling a hidden `switch`-styled
 checkbox produces a system haptic tap on **iOS 17.4+ Safari**. The phone page's
-`haptics` line shows which path is active (`vibration` on Android, `iOS switch
-trick` on iPhone). On older iOS or browsers without either, you'll still get the
-laptop flash + tick but no phone haptic.
+`haptic mode` line shows which path is active (`vibration` on Android,
+`ios-switch` on iPhone).
+
+**Troubleshooting haptics (they can fail silently):** the phone page shows
+`buzz received` and `last haptic call`, and there's a **Test haptic now** button.
+Use them to localize a problem:
+
+- *Test button buzzes, network buzzes don't, but `buzz received` increments* —
+  the message arrives but the OS blocks haptics outside a direct tap. This is
+  common: Android needs a prior interaction (the Enable tap covers it) and
+  **iOS's switch trick generally only fires from a real touch, not an async
+  network callback** — so iPhone network-triggered haptics may simply not be
+  possible from the web.
+- *`buzz received` does not increment* — the click isn't reaching the phone;
+  check that the laptop's `clicks sent` is going up (i.e. the kite is actually
+  crossing 12) and that both sockets are connected.
+- *`buzz received` increments and the screen flashes blue, but no vibration* —
+  the device/OS isn't vibrating (too-short pulse, silent mode, iOS < 17.4, or
+  the switch trick unsupported).
+
+The screen flashes blue on every received buzz regardless of haptic success, so
+you can always confirm the network path.
 
 ### Kite lag
 

@@ -6,7 +6,8 @@
   <title>Kite bar — phone sensor</title>
   <link rel="stylesheet" href="/style.css" />
   <style>
-    body { padding: 1.2rem; max-width: 460px; margin: 0 auto; }
+    body { padding: 1.2rem; max-width: 460px; margin: 0 auto; transition: background 0.05s; }
+    body.flash { background: #2f81f7; }
     .big { width: 100%; padding: 1.1rem; font-size: 1.1rem; margin: 1rem 0; }
     .readout { font-size: 2rem; margin: 0.2rem 0; }
     .row { display: flex; justify-content: space-between; padding: 0.35rem 0; border-bottom: 1px solid var(--line); }
@@ -21,6 +22,7 @@
   Tap below, allow motion access, then tilt to steer.</p>
 
   <button id="enable" class="big">Enable sensors &amp; connect</button>
+  <button id="test" class="big" style="background:#21262d;border:1px solid var(--line);color:var(--text)">Test haptic now</button>
 
   <div class="panel">
     <h2><span id="dot" class="dot"></span><span id="status">Not connected</span></h2>
@@ -28,7 +30,9 @@
     <div class="row"><span>beta (pitch)</span><span id="beta" class="mono">—</span></div>
     <div class="row"><span>gamma (roll)</span><span id="gamma" class="mono">—</span></div>
     <div class="row"><span>sending</span><span id="rate" class="mono">0 Hz</span></div>
-    <div class="row"><span>haptics</span><span id="haptic" class="mono">—</span></div>
+    <div class="row"><span>haptic mode</span><span id="haptic" class="mono">—</span></div>
+    <div class="row"><span>buzz received</span><span id="recv" class="mono">0</span></div>
+    <div class="row"><span>last haptic call</span><span id="result" class="mono">—</span></div>
   </div>
 
   <p id="msg"></p>
@@ -60,33 +64,44 @@
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS reports as Mac
     const iosLabel = $('iosHapticLabel');
     const hapticMode = canVibrate ? 'vibration' : (isIOS ? 'ios-switch' : 'none');
-    const IDLE_TEXT = {
-      vibration: 'supported (vibration)',
-      'ios-switch': 'iOS switch trick (needs iOS 17.4+)',
-      none: 'not supported on this browser',
-    }[hapticMode];
-    $('haptic').textContent = IDLE_TEXT;
+    $('haptic').textContent = hapticMode;
 
-    function iosHaptic() {
-      // A programmatic click on the label toggles the switch and fires the tap.
-      try { iosLabel.click(); } catch {}
+    let recvCount = 0;
+
+    // Flash the screen on every buzz, independent of whether the haptic fires —
+    // this confirms the message actually reached the phone (network path OK)
+    // even if the device can't or won't vibrate.
+    function flashScreen() {
+      document.body.classList.add('flash');
+      setTimeout(() => document.body.classList.remove('flash'), 80);
     }
 
-    let hapticFlash = 0;
-    function click() {
-      // A short pulse / tap feels like a "click".
-      if (hapticMode === 'vibration') navigator.vibrate(20);
-      else if (hapticMode === 'ios-switch') iosHaptic();
-      hapticFlash = Date.now();
-      $('haptic').textContent = '● click';
-    }
-    // Reset the flashed label shortly after a click.
-    setInterval(() => {
-      if (hapticFlash && Date.now() - hapticFlash > 250) {
-        hapticFlash = 0;
-        $('haptic').textContent = IDLE_TEXT;
+    // Perform the platform haptic and report the result, so a silent failure
+    // becomes visible. `source` is "buzz" (network) or "test" (direct tap).
+    function doHaptic(source) {
+      let result;
+      if (hapticMode === 'vibration') {
+        const ok = navigator.vibrate(40);           // 40ms — clearly feelable
+        result = `vibrate→${ok}`;
+      } else if (hapticMode === 'ios-switch') {
+        try { iosLabel.click(); result = 'switch toggled'; }
+        catch (e) { result = 'switch error: ' + e.message; }
+      } else {
+        result = 'no haptic API';
       }
-    }, 100);
+      $('result').textContent = `${source}: ${result}`;
+    }
+
+    function onBuzz() {
+      recvCount++;
+      $('recv').textContent = recvCount;
+      flashScreen();
+      doHaptic('buzz');
+    }
+
+    // Manual test from a real user gesture — the most permissive context for
+    // both Android vibrate and the iOS switch trick.
+    $('test').addEventListener('click', () => { flashScreen(); doHaptic('test'); });
 
     function connect() {
       ws = new WebSocket(`wss://${location.host}/ws`);
@@ -97,7 +112,7 @@
       });
       ws.addEventListener('message', (ev) => {
         let msg; try { msg = JSON.parse(ev.data); } catch { return; }
-        if (msg.t === 'buzz') click();
+        if (msg.t === 'buzz') onBuzz();
       });
       ws.addEventListener('close', () => {
         setStatus('Disconnected — retrying…', 'warn');
