@@ -64,9 +64,21 @@ you get one click per genuine left↔right crossing. The laptop also flashes the
 center line and (optionally) plays a tick so you can confirm it without an
 Android phone in hand.
 
-**iPhone support:** iOS Safari has no Vibration API, so the phone falls back to
-the "switch haptic" trick — programmatically toggling a hidden `switch`-styled
-checkbox produces a system haptic tap on **iOS 17.4+ Safari**. The phone page's
+**Reliable haptics (iPhone + Android): the native app.** Mobile browsers can't
+fire haptics from a background WebSocket event (iOS Safari especially). For real,
+dependable haptics, run the phone page inside the **Capacitor native shell** in
+[`mobile/`](mobile/README.md) — same `public/phone.html`, but it detects the
+native runtime and uses the OS haptics plugin (`haptic mode: native`). The app
+connects to the laptop over cleartext `ws://` on the LAN (server prints the
+address). This is the recommended path for iPhone.
+
+The browser fallbacks below still work without installing anything:
+
+**iPhone (browser) support:** iOS Safari has no Vibration API, so the phone falls
+back to the "switch haptic" trick — programmatically toggling a hidden
+`switch`-styled checkbox produces a system haptic tap on **iOS 17.4+ Safari**.
+This often only fires from a direct tap, not a network event, which is why the
+native app exists. The phone page's
 `haptic mode` line shows which path is active (`vibration` on Android,
 `ios-switch` on iPhone).
 

@@ -1,0 +1,9 @@
+{
+  "appId": "com.kitesurf.imu",
+  "appName": "KiteBar",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  }
+}

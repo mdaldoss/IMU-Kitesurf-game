@@ -1,0 +1,26 @@
+{
+  "name": "kitebar-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Capacitor native shell for the Kite Bar phone sensor page (real haptics).",
+  "type": "module",
+  "scripts": {
+    "copy:web": "node copy-web.mjs",
+    "sync": "npm run copy:web && cap sync",
+    "add:ios": "cap add ios",
+    "add:android": "cap add android",
+    "open:ios": "cap open ios",
+    "open:android": "cap open android",
+    "run:ios": "npm run copy:web && cap run ios",
+    "run:android": "npm run copy:web && cap run android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/haptics": "^6.0.2",
+    "@capacitor/ios": "^6.1.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2"
+  }
+}
