@@ -1,8 +1,34 @@
 # IMU Kitesurf Game
 
-A kitesurf-bar simulator. A laptop browser displays a kite and a control "bar";
-a smartphone's motion sensors drive the bar. Hold the phone level → kite at 12
-o'clock; roll it right/left → steer right/left.
+A kitesurf-bar simulator with two modes that share one flight model:
+
+- **Standalone phone game** (`/game`) — a single-device kite game: tilt to steer,
+  pull the phone down to power up and jump, fly real-spot wind presets, score
+  combos. No laptop or network needed. Runs in a phone browser or as the
+  [Capacitor app](mobile/README.md) (real native haptics).
+- **Trainer** — a laptop browser displays the kite and a control "bar"; a
+  smartphone's motion sensors drive it over the LAN. Hold the phone level → kite
+  at 12 o'clock; roll right/left → steer; pull down → power.
+
+## Standalone game (`/game`)
+
+Open the **Phone game** URL printed by `npm start` (or build the native app).
+Tap **play**, grant motion access, and hold the phone facing you:
+
+- **Tilt to steer** the kite around the wind window (or switch to *Bar style* in
+  ⚙ settings; calibrate the centre while holding level).
+- **Pull the phone down** to power the kite (the bar power meter fills); a strong
+  pull with the kite **overhead** pops a **jump** — the rider lifts off the water.
+- **Cross 12 o'clock** for combo points; **don't crash** into the water (steer
+  back toward centre to relaunch, wind permitting).
+- Pick a **spot** in ⚙ settings (Tarifa, Maui, Lake Garda thermal, Cape Town,
+  Dakhla) — each has its own wind strength and gust character.
+
+Score = airtime + clean 12-o'clock passes + jump height, with a combo multiplier
+that a crash resets; your best is kept on the device.
+
+## Phase 1 — IMU stream validation (this code)
+
 
 ## Phase 1 — IMU stream validation (this code)
 

@@ -1,13 +1,17 @@
 # KiteBar — native shell (Capacitor)
 
-Wraps the same `public/phone.html` in a native iOS/Android app so it gets **real
-OS haptics** (`@capacitor/haptics`) — the thing mobile browsers can't do from a
-background WebSocket event. The page auto-detects the native shell and uses the
-native plugin; in a plain browser it falls back to the web haptic paths.
+Wraps the web pages in a native iOS/Android app so they get **real OS haptics**
+(`@capacitor/haptics`) — the thing mobile browsers can't do from a background
+event. The pages auto-detect the native shell and use the native plugin; in a
+plain browser they fall back to the web haptic paths.
 
-The app talks to the laptop relay over **cleartext `ws://` on the LAN** (a native
-WebView can't bypass the self-signed cert the browser path uses). You enter the
-laptop's address (printed by `npm start` in the repo root) in the app.
+The app launches into the **standalone game** (`public/game.html` → `index.html`):
+a single-device kite game with on-device IMU, physics, native haptics, real-spot
+wind presets, bar-pull power and jumps — **no laptop or network needed**. A link
+on the start screen opens **Trainer mode** (`public/phone.html` → `trainer.html`),
+the IMU-sensor page that steers a laptop display over **cleartext `ws://` on the
+LAN** (a native WebView can't bypass the self-signed cert the browser path uses).
+Enter the laptop's address (printed by `npm start` in the repo root) there.
 
 ## Prerequisites
 
@@ -34,8 +38,8 @@ npm run open:android        # opens Android Studio → Run on device
 npm run run:android
 ```
 
-After editing `public/phone.html`, re-run `npm run sync` to push the change into
-the native projects.
+After editing `public/game.html` / `public/phone.html` (or the shared `*.js`
+modules), re-run `npm run sync` to push the change into the native projects.
 
 ## Required native settings
 
