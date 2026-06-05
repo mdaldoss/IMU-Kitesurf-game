@@ -17,10 +17,44 @@
     .stage { background: #0d1117; border: 1px solid var(--line); border-radius: 10px; }
     .steer-big { font-size: 2.5rem; color: var(--accent); }
     @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+    .instructions { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.2rem; }
+    .instructions h2 { margin-top: 0; }
+    .instructions ol { margin: 0; padding-left: 1.2rem; }
+    .instructions li { margin-bottom: 0.4rem; }
+    .instructions .note { color: var(--muted); font-size: 0.85rem; margin-top: 0.6rem; }
+    .game-btn { display: inline-block; margin-top: 0.6rem; padding: 0.45rem 1.1rem; background: var(--accent); color: #0d1117; font-weight: 700; border-radius: 6px; text-decoration: none; font-size: 0.95rem; }
+    .game-btn:hover { opacity: 0.85; }
+    @media (max-width: 600px) { .instructions { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
   <h1>Kite bar — laptop display</h1>
+
+  <div class="instructions">
+    <div class="panel">
+      <h2>📱 Connect your phone</h2>
+      <ol>
+        <li>Run the server on your laptop: <code>npm start</code></li>
+        <li>Make sure your phone is on the <strong>same Wi-Fi network</strong></li>
+        <li>Scan the QR code printed in the terminal, or open <code>https://&lt;your-laptop-ip&gt;:8443/phone</code> on your phone</li>
+        <li>Accept the self-signed certificate warning</li>
+        <li>Tap <strong>Start streaming</strong> on the phone page</li>
+        <li>Hold the phone in landscape grip — the kite above should move in real time</li>
+      </ol>
+      <p class="note">The status indicator at the top of the panel turns green when the stream is live.</p>
+    </div>
+
+    <div class="panel">
+      <h2>🎮 Play in game mode</h2>
+      <ol>
+        <li>Connect your phone first (see left)</li>
+        <li>Optionally tweak the steering axis, scale, and wind settings below</li>
+        <li>Click the button below to open the full game</li>
+      </ol>
+      <p class="note">Game mode adds a score, wind spots, and jump mechanics. Your mapping settings carry over automatically.</p>
+      <a class="game-btn" href="/game.html">Open game →</a>
+    </div>
+  </div>
 
   <div class="grid">
     <div>
