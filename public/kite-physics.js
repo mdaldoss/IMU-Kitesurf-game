@@ -17,10 +17,11 @@ export const PHYS = {
   relaunchDrag: 0.35,  // how sluggishly the kite peels off the water
   // jump model (height in arbitrary "window units", tuned for feel)
   gravity: 2.4,        // downward accel while airborne
-  popGain: 2.6,        // takeoff velocity per unit power
+  popGain: 3.5,        // takeoff velocity per unit power
   popPullMin: 0.55,    // power needed to pop
   popThetaMax: 45,     // must be within this of the zenith to load up & jump
   popArmBelow: 0.3,    // power must drop below this to re-arm the next pop
+  edgeTensionBonus: 0.7, // extra vy multiplier from kite position at the edge
 };
 
 export function createKite() {
@@ -87,7 +88,9 @@ export function stepKite(k, opts) {
       pull >= PHYS.popPullMin && overhead && windNow >= minWind) {
     k.airborne = true;
     k.popArmed = false;
-    k.vy = PHYS.popGain * pull * Math.min(1.6, windNow / windRef);
+    // Edge of the window builds line tension: more lateral kite position = higher pop.
+    const edgeFactor = 1 + PHYS.edgeTensionBonus * Math.abs(k.theta) / thetaMax;
+    k.vy = PHYS.popGain * pull * Math.min(1.6, windNow / windRef) * edgeFactor;
     events.takeoff = true;
   }
   if (k.airborne) {
