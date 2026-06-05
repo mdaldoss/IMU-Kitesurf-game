@@ -227,6 +227,8 @@
     let last = null;                 // raw {alpha,beta,gamma}
     let yawPrev = null, spinAccum = 0;
     let pull = 0;
+    let pullArmed = true;            // de-bounces the "bar pulled in" haptic
+    const PULL_HAPTIC_ON = 0.5, PULL_HAPTIC_OFF = 0.25;
     let running = false, started = false;
     let score = 0, combo = 1, airtime = 0, jumpPeak = 0, runScore = 0;
     let flashTs = -1e9, trickTs = -1e9;
@@ -343,6 +345,9 @@
         const tSec = (now - t0) / 1000;
         const wind = effectiveWind(spot, tSec);
         pull += (barPull.read() - pull) * (1 - Math.exp(-dt / 0.1));
+        // Haptic kick when the bar is pulled in past the threshold (once per pull).
+        if (pullArmed && pull >= PULL_HAPTIC_ON) { pullArmed = false; haptic('light'); }
+        else if (!pullArmed && pull <= PULL_HAPTIC_OFF) { pullArmed = true; }
         const steer = steering();
 
         const ev = stepKite(kite3, { barTarget: steer * thetaMax, pull, windNow: wind, tau, dt });
