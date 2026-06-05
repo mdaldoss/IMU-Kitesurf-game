@@ -95,6 +95,12 @@
           <label>Kite state</label>
           <div class="mono"><span id="kstate">flying</span> · θ <span id="theta">0</span>° · wind <span id="windNow">18</span> kn</div>
         </div>
+        <div class="ctrl">
+          <label>Bar power (pull) — <span id="powVal">0</span>%</label>
+          <div style="height:10px;background:#0d1117;border:1px solid var(--line);border-radius:5px;overflow:hidden">
+            <div id="powBar" style="height:100%;width:0%;background:var(--accent)"></div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -105,7 +111,10 @@
     </div>
   </div>
 
-  <script>
+  <script type="module">
+    import { PHYS, createKite, stepKite, makeCrossingDetector } from '/kite-physics.js';
+    import { effectiveWind } from '/wind-spots.js';
+
     const $ = (id) => document.getElementById(id);
 
     // --- persisted mapping config ---
@@ -131,7 +140,7 @@
     $('invert').addEventListener('change', (e) => { cfg.invert = e.target.checked; saveCfg(); });
     $('scale').addEventListener('change', (e) => { cfg.scale = Number(e.target.value) || 45; saveCfg(); });
     $('haptics').addEventListener('change', (e) => { cfg.haptics = e.target.checked; saveCfg(); });
-    $('hyst').addEventListener('change', (e) => { cfg.hyst = Number(e.target.value) || 0.06; saveCfg(); });
+    $('hyst').addEventListener('change', (e) => { cfg.hyst = Number(e.target.value) || 0.06; crossing.setHyst(cfg.hyst); saveCfg(); });
     $('tick').addEventListener('change', (e) => { cfg.tick = e.target.checked; saveCfg(); });
     $('physics').addEventListener('change', (e) => { cfg.physics = e.target.checked; saveCfg(); });
     $('wind').addEventListener('input', (e) => { cfg.wind = Number(e.target.value); $('windVal').textContent = cfg.wind; saveCfg(); });
@@ -143,6 +152,7 @@
 
     // --- incoming state ---
     let last = null;       // last raw {alpha,beta,gamma}
+    let pullIn = 0;        // bar power (0..1) streamed from the phone
     let lastTs = 0;        // wall-clock arrival time of last packet
     let pktCount = 0;
     let phonesConnected = 0;
@@ -168,6 +178,7 @@
         let msg; try { msg = JSON.parse(ev.data); } catch { return; }
         if (msg.t === 'ori') {
           last = { alpha: msg.alpha, beta: msg.beta, gamma: msg.gamma };
+          pullIn = typeof msg.pull === 'number' ? msg.pull : 0;   // bar power from phone
           lastTs = performance.now();
           pktCount++;
           $('alpha').textContent = fmt(msg.alpha);
@@ -241,10 +252,9 @@
     barG.appendChild(bar);
 
     // --- haptic "click" at 12, with hysteresis ---
-    // Schmitt trigger: the kite must travel past ±hyst to register a side, so
-    // jitter around center can't produce a stream of clicks. One click per
-    // genuine left<->right crossing.
-    let lastSign = 0;            // -1 left, +1 right, 0 = not yet established
+    // Schmitt-trigger crossing detector (shared module): one click per genuine
+    // left<->right crossing, no chatter around centre.
+    const crossing = makeCrossingDetector(cfg.hyst);
     let flashTs = -1e9;
     let crashFlash = -1e9;
     let audioCtx = null;
@@ -282,31 +292,16 @@
       sendBuzz(2);
       playTick(); setTimeout(playTick, 150);
     }
-    function detectCrossing(s) {
-      let sign = lastSign;
-      if (s > cfg.hyst) sign = 1;
-      else if (s < -cfg.hyst) sign = -1;
-      if (sign !== lastSign) {
-        if (lastSign !== 0) fireClick();   // skip the very first side we land on
-        lastSign = sign;
-      }
-    }
-
     const halfBar = 34;
-    const WIND_REF = 18;        // reference wind (kn) at which "turn" is calibrated
-    const MIN_WIND = 6;         // below this the kite can't relaunch off the water
-    const RELAUNCH_DRAG = 0.35; // how sluggishly it peels off the water
-    let theta = 0;              // kite angle from zenith (deg)
+    const kite3 = createKite();         // physics state (theta, crash, jump…)
+    let theta = 0;                      // mirror of kite3.theta for rendering
     let crashed = false, crashSide = 0;
+    let pull = 0;                       // smoothed bar power used this frame
     let lastFrame = performance.now();
 
-    // Smoothly varying wind: base strength plus gusts (sum of sines, scaled by
-    // the gust slider). Deterministic and jitter-free.
-    function effectiveWind(tSec) {
-      const g = (cfg.gust / 100) * 0.6;
-      const f = g * (0.6 * Math.sin(tSec * 0.7) + 0.4 * Math.sin(tSec * 1.9 + 1.3));
-      return Math.max(1, Math.min(60, cfg.wind * (1 + f)));
-    }
+    // Build a spot from the manual wind/gust sliders so the shared wind model
+    // (gust wobble) drives the trainer too.
+    const manualSpot = () => ({ baseWind: cfg.wind, gust: cfg.gust / 100 });
 
     function render() {
       const now = performance.now();
@@ -316,48 +311,28 @@
 
       const steer = Math.max(-1, Math.min(1, steeringValue())); // bar input (instant)
       $('steer').textContent = steer.toFixed(2);
-      const wind = cfg.physics ? effectiveWind(tSec) : cfg.wind;
+      pull += (pullIn - pull) * (1 - Math.exp(-dt / 0.12));      // smooth power
+      const wind = cfg.physics ? effectiveWind(manualSpot(), tSec) : cfg.wind;
 
       if (!cfg.physics) {
         // Direct mapping — bar angle = window angle. Good for orientation checks.
-        theta = steer * thetaMax;
-        crashed = false; crashSide = 0;
+        kite3.theta = steer * thetaMax;
+        kite3.crashed = false; kite3.crashSide = 0; kite3.airborne = false; kite3.height = 0;
       } else {
-        // Bar inclination sets the TARGET ANGLE on the wind window — where the
-        // kite will settle. The kite tracks there with a first-order lag; more
-        // wind means faster response (tau shrinks proportionally).
-        const barTarget = steer * thetaMax;
-        const windFactor = Math.max(0.3, wind / WIND_REF);
-        const effectiveTau = cfg.turn / windFactor;            // seconds
-
-        if (crashed) {
-          // Kite is pinned at the water edge. Steering bar toward centre
-          // peels it off slowly; needs enough wind to relaunch.
-          const awaySteering = crashSide * steer < 0;          // bar toward centre
-          if (wind >= MIN_WIND && awaySteering) {
-            const k = 1 - Math.exp(-dt / (effectiveTau / RELAUNCH_DRAG));
-            theta += (barTarget - theta) * k;
-          }
-          if (Math.abs(theta) < thetaMax - 10) {
-            crashed = false; crashSide = 0;                     // back in the air
-          }
-        } else {
-          // Normal flight: ease toward bar target.
-          const k = 1 - Math.exp(-dt / effectiveTau);
-          theta += (barTarget - theta) * k;
-
-          // Crash when the kite reaches the physical edge of the wind window.
-          if (Math.abs(theta) >= thetaMax - 0.5) {
-            theta = Math.sign(theta) * thetaMax;
-            crashed = true; crashSide = Math.sign(theta);
-            fireCrash();                                        // double buzz
-          }
-        }
-        theta = Math.max(-thetaMax, Math.min(thetaMax, theta));
+        // Shared flight model: bar = target angle, kite eases toward it; wind +
+        // power shorten the response; pull-to-pop drives jumps; crash at edge.
+        const ev = stepKite(kite3, {
+          barTarget: steer * thetaMax, pull, windNow: wind, tau: cfg.turn, dt,
+        });
+        if (ev.crash) fireCrash();                 // double buzz
+        if (ev.crossed12) { /* handled below via detector */ }
       }
+      theta = kite3.theta;
+      crashed = kite3.crashed;
+      crashSide = kite3.crashSide;
 
       // crossing 12 (single buzz); normalize so hysteresis stays in bar units
-      if (!crashed) detectCrossing(theta / thetaMax);
+      if (!crashed && crossing.detect(theta / thetaMax).crossed12) fireClick();
 
       const fAge = performance.now() - flashTs;
       centerFlash.setAttribute('opacity', fAge < 300 ? (1 - fAge / 300).toFixed(3) : 0);
@@ -388,7 +363,10 @@
 
       $('theta').textContent = theta.toFixed(0);
       $('windNow').textContent = wind.toFixed(0);
-      $('kstate').textContent = crashed ? ('crashed ' + (crashSide < 0 ? 'L' : 'R')) : 'flying';
+      $('kstate').textContent = crashed ? ('crashed ' + (crashSide < 0 ? 'L' : 'R'))
+        : kite3.airborne ? ('airborne ↑' + kite3.height.toFixed(1)) : 'flying';
+      $('powVal').textContent = Math.round(pull * 100);
+      $('powBar').style.width = Math.round(pull * 100) + '%';
 
       requestAnimationFrame(render);
     }

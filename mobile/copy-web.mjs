@@ -10,6 +10,14 @@ const publicDir = join(here, '..', 'public');
 const www = join(here, 'www');
 
 await mkdir(www, { recursive: true });
-await copyFile(join(publicDir, 'phone.html'), join(www, 'index.html'));
+// The native app launches into the standalone game; the laptop "trainer" sensor
+// page (phone.html) stays reachable at /trainer.html for IMU validation.
+await copyFile(join(publicDir, 'game.html'), join(www, 'index.html'));
+await copyFile(join(publicDir, 'phone.html'), join(www, 'trainer.html'));
 await copyFile(join(publicDir, 'style.css'), join(www, 'style.css'));
-console.log('Copied public/phone.html -> mobile/www/index.html (+ style.css)');
+
+// Shared ES modules imported by the phone pages (bar power, physics, spots).
+for (const mod of ['bar-pull.js', 'kite-physics.js', 'wind-spots.js', 'kite-game.js']) {
+  await copyFile(join(publicDir, mod), join(www, mod));
+}
+console.log('Copied public/game.html -> mobile/www/index.html (+ trainer.html, style.css, modules)');

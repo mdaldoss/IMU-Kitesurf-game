@@ -45,6 +45,7 @@
 
   <p id="msg"></p>
   <p class="hint">Keep this page open and the screen awake while testing.</p>
+  <p class="hint"><a id="gameLink" href="/game" style="color:var(--accent)">Play the standalone game (no laptop needed) →</a></p>
   <p id="hapticHint" class="hint" style="display:none"></p>
 
   <!-- iOS Safari has no Vibration API, but toggling a `switch`-styled checkbox
@@ -55,9 +56,12 @@
     <input id="iosHapticSwitch" type="checkbox" switch />
   </label>
 
-  <script>
+  <script type="module">
+    import { createBarPull } from '/bar-pull.js';
+
     const $ = (id) => document.getElementById(id);
     const SEND_HZ = 50;
+    const barPull = createBarPull();   // vertical phone motion -> bar power (0..1)
     let latest = null;       // most recent reading {alpha,beta,gamma,abs}
     let ws = null;
     let sentCount = 0;
@@ -101,6 +105,9 @@
     // The native app loads from capacitor://localhost and must be told where the
     // laptop is; a browser served by the laptop just uses its own origin.
     const servedByLaptop = !isNative && location.protocol.startsWith('http') && location.host;
+    // In the native app the game is the entry page (index.html); served by the
+    // laptop it's at /game.
+    $('gameLink').setAttribute('href', servedByLaptop ? '/game' : 'index.html');
     const addrBox = $('addrBox'), addrInput = $('addr');
     if (!servedByLaptop) {
       addrBox.style.display = '';
@@ -201,7 +208,7 @@
     setInterval(() => {
       if (!ws || ws.readyState !== WebSocket.OPEN || !latest) return;
       if (ws.bufferedAmount > 1024) return; // backpressure guard
-      ws.send(JSON.stringify({ t: 'ori', ts: Date.now(), ...latest }));
+      ws.send(JSON.stringify({ t: 'ori', ts: Date.now(), ...latest, pull: barPull.read() }));
       sentCount++;
     }, Math.round(1000 / SEND_HZ));
 
@@ -231,6 +238,10 @@
         window.addEventListener('deviceorientationabsolute', onOrientation);
       }
       window.addEventListener('deviceorientation', onOrientation);
+
+      // Bar power: pull/raise the phone vertically -> streamed `pull` value.
+      // Same user gesture covers the iOS DeviceMotion permission prompt.
+      barPull.start();
 
       $('enable').textContent = 'Sensors enabled';
       $('enable').disabled = true;

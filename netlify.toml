@@ -1,0 +1,7 @@
+[build]
+  publish = "public"
+
+[[redirects]]
+  from = "/"
+  to = "/laptop.html"
+  status = 200

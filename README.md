@@ -1,8 +1,38 @@
 # IMU Kitesurf Game
 
-A kitesurf-bar simulator. A laptop browser displays a kite and a control "bar";
-a smartphone's motion sensors drive the bar. Hold the phone level → kite at 12
-o'clock; roll it right/left → steer right/left.
+A kitesurf-bar simulator with two modes that share one flight model:
+
+- **Standalone phone game** (`/game`) — a single-device kite game: tilt to steer,
+  pull the phone down to power up and jump, fly real-spot wind presets, score
+  combos. No laptop or network needed. Runs in a phone browser or as the
+  [Capacitor app](mobile/README.md) (real native haptics).
+- **Trainer** — a laptop browser displays the kite and a control "bar"; a
+  smartphone's motion sensors drive it over the LAN. Hold the phone level → kite
+  at 12 o'clock; roll right/left → steer; pull down → power.
+
+## Standalone game (`/game`)
+
+Open the **Phone game** URL printed by `npm start` (or build the native app).
+Tap **play**, grant motion access, and hold the phone facing you:
+
+- **Tilt to steer** the kite around the wind window (or switch to *Bar style* in
+  ⚙ settings; calibrate the centre while holding level).
+- **Pull the phone down** to power the kite (the bar power meter fills); a strong
+  pull with the kite **overhead** pops a **jump** — the rider lifts off the water.
+- **Spin the phone mid-air** for trick bonuses (180°/360°/540°…).
+- **Jump the buoys** that drift in along the water — be airborne when they reach
+  you, or you wipe out.
+- **Cross 12 o'clock** for combo points; **don't crash** into the water (tap
+  *Relaunch* to recover).
+- Pick a **spot** in ⚙ settings (Tarifa, Maui, Lake Garda thermal, Cape Town,
+  Dakhla) — each has its own wind strength and gust character.
+
+Score = airtime + clean 12-o'clock passes + jump height + tricks + cleared
+buoys, with a combo multiplier that a crash resets; your best is kept on the
+device.
+
+## Phase 1 — IMU stream validation (this code)
+
 
 ## Phase 1 — IMU stream validation (this code)
 
@@ -105,27 +135,37 @@ you can always confirm the network path.
 ### Kite flight model
 
 With **Flight physics** on (default), the kite flies on a **wind window** (an arc
-centred on the rider) and the bar sets the **turn rate**, not a fixed position —
-just like a real kite:
+centred on the rider). The bar's tilt sets a **target angle** — where the kite
+will settle — and the kite eases toward it with a first-order lag, just like a
+real kite:
 
-- Hold the bar tilted and the kite keeps flying to that side until it **crashes
-  into the water** at the edge → **double buzz**.
+- Tilt the bar partway and the kite glides to that spot and **holds** there.
+- Tilt it all the way and the kite flies to the edge and **crashes into the
+  water** → **double buzz**.
 - A crashed kite is held down by **water friction**: steering back toward the
   centre peels it off slowly, and only if there's **enough wind**. Once it's off
   the water it flies normally again.
-- Crossing **12 o'clock** (the zenith) still gives a single buzz.
+- Crossing **12 o'clock** (the zenith) gives a single buzz.
+- **Bar power (pull):** swing/pull the phone *down* toward the ground to pull the
+  bar in (power up); raise it to depower. More power means a snappier kite, and a
+  strong pull while the kite is overhead pops a **jump**. The laptop shows a live
+  power meter. (Derived from the phone's motion sensor — see `public/bar-pull.js`.)
 
 Controls (laptop, persisted):
 
-- **Wind strength** (kn) — scales how fast the kite flies; too little wind and a
+- **Wind strength** (kn) — more wind makes the kite track faster; too little and a
   crashed kite won't relaunch.
 - **Gust intensity** (%) — smoothly varying gusts on top of the base wind (shown
   live as `wind … kn`).
-- **Steering response** (°/s at full bar) — how aggressively the bar turns the
-  kite.
+- **Response time** (s) — how long the kite takes to reach the bar's target at
+  reference wind; wind and power both shorten it.
 
 Turn **Flight physics off** to map the bar directly to a window angle (no
 inertia, no crashes) — handy for re-checking the orientation/axis.
+
+The flight model lives in shared modules (`public/kite-physics.js`,
+`public/wind-spots.js`, `public/bar-pull.js`) used by both the laptop display and
+the phone, and is covered by a headless test: `npm test`.
 
 ### Fallback: ngrok (clean HTTPS, needs internet)
 
