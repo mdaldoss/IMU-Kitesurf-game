@@ -146,8 +146,7 @@
         });
         result = 'native impact';
       } else if (hapticMode === 'vibration') {
-        // A longer double-buzz so weak motors register; `test` is stronger still.
-        const pattern = source === 'test' ? [0, 120, 60, 120] : [0, 60];
+        const pattern = [0, 120, 60, 120];
         const ok = navigator.vibrate(pattern);
         result = `vibrate(${pattern.join(',')})→${ok}`;
       } else if (hapticMode === 'ios-switch') {

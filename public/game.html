@@ -157,9 +157,21 @@
         const style = kind === 'light' ? 'LIGHT' : kind === 'heavy' ? 'HEAVY' : 'MEDIUM';
         cap.Plugins.Haptics.impact({ style }).catch(() => {});
       } else if (hapticMode === 'vibration') {
-        navigator.vibrate(kind === 'heavy' ? [0, 90, 40, 90] : kind === 'light' ? [0, 25] : [0, 55]);
+        // heavy = double pulse, medium = strong double, light = single
+        const p = kind === 'heavy' ? [0, 120, 60, 120, 60, 120] : kind === 'light' ? [0, 120] : [0, 120, 60, 120];
+        navigator.vibrate(p);
       } else if (hapticMode === 'ios-switch') {
         try { iosLabel.click(); } catch {}
+      }
+    }
+
+    // Lock screen orientation to landscape in bar mode, portrait in tilt mode.
+    function applyOrientationLock() {
+      if (!screen.orientation || typeof screen.orientation.lock !== 'function') return;
+      if (cfg.scheme === 'bar') {
+        screen.orientation.lock('landscape').catch(() => {});
+      } else {
+        screen.orientation.unlock();
       }
     }
 
@@ -252,7 +264,7 @@
     }
     $('schemeSeg').addEventListener('click', (e) => {
       const b = e.target.closest('button'); if (!b) return;
-      cfg.scheme = b.dataset.scheme; cfg.neutral = 0; save(); syncScheme();
+      cfg.scheme = b.dataset.scheme; cfg.neutral = 0; save(); syncScheme(); applyOrientationLock();
     });
     $('sens').addEventListener('input', (e) => { cfg.sens = +e.target.value; $('sensVal').textContent = cfg.sens; save(); });
     $('invert').addEventListener('change', (e) => { cfg.invert = e.target.checked; save(); });
@@ -288,6 +300,7 @@
       if ('ondeviceorientationabsolute' in window) window.addEventListener('deviceorientationabsolute', onOri);
       window.addEventListener('deviceorientation', onOri);
       await barPull.start();    // motion permission + power axis
+      applyOrientationLock();
 
       crossing.reset(); obstacles.reset();
       score = 0; combo = 1; airtime = 0; t0 = performance.now();
