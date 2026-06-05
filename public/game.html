@@ -75,8 +75,9 @@
   <div class="overlay" id="startOverlay">
     <h1>🪁 Kite</h1>
     <p>Tilt to steer the kite around the wind window. Pull the phone <b>down</b> to
-       power up — pull hard with the kite overhead to <b>jump</b>. Cross 12 o'clock
-       for combos; don't crash into the water.</p>
+       power up — pull hard with the kite overhead to <b>jump</b>, and spin the
+       phone mid-air for <b>trick</b> bonuses. Jump the drifting <b>buoys</b>,
+       cross 12 o'clock for combos, and don't crash into the water.</p>
     <button class="btn" id="startBtn">Tap to play</button>
     <p style="font-size:0.8rem">Grant motion access when asked. Hold the phone facing you.</p>
     <p style="font-size:0.8rem"><a id="trainerLink" href="/phone" style="color:#2f81f7">Trainer mode (steer a laptop display) →</a></p>
@@ -84,9 +85,9 @@
 
   <!-- crash overlay -->
   <div class="overlay hidden" id="crashOverlay">
-    <h1>💦 Crash!</h1>
-    <p>Steer back toward the centre to relaunch — needs enough wind.</p>
-    <p class="sub">Run score <b id="crashScore">0</b></p>
+    <h1>💦 Wipeout!</h1>
+    <p class="sub" id="crashWhy"></p>
+    <p>Run score <b id="crashScore">0</b></p>
     <button class="btn" id="relaunchBtn">Relaunch</button>
   </div>
 
@@ -125,6 +126,7 @@
     import { PHYS, createKite, stepKite, makeCrossingDetector } from '/kite-physics.js';
     import { effectiveWind, SPOTS, spotById } from '/wind-spots.js';
     import { createBarPull } from '/bar-pull.js';
+    import { createObstacles, trickName } from '/kite-game.js';
 
     const $ = (id) => document.getElementById(id);
 
@@ -191,6 +193,7 @@
     add('text', { x: zen.x, y: zen.y - 16, fill: '#8b949e', 'text-anchor': 'middle', 'font-size': 12 }).textContent = '12';
     const centerFlash = add('circle', { cx: zen.x, cy: zen.y, r: 16, fill: 'none', stroke: '#2f81f7', 'stroke-width': 3, opacity: 0 });
     const targetMarker = add('circle', { r: 8, fill: 'none', stroke: 'rgba(231,196,70,0.5)', 'stroke-width': 2, 'stroke-dasharray': '3 3' });
+    const obstacleLayer = add('g', {});   // buoys/kickers drifting toward the rider
     const lineL = add('line', { stroke: '#3fb950', 'stroke-width': 2 });
     const lineR = add('line', { stroke: '#3fb950', 'stroke-width': 2 });
     const kite = add('polygon', { points: '0,-17 15,9 0,2 -15,9', fill: '#2f81f7' });
@@ -200,17 +203,22 @@
     add('circle', { cx: 0, cy: -6, r: 5, fill: '#e6edf3' }, riderG); // rider
     const barG = add('g', {});
     const bar = add('rect', { x: -32, y: -5, width: 64, height: 10, rx: 4, fill: '#e6edf3' }, barG);
+    const trickText = add('text', { x: cx, y: 96, fill: '#e3b341', 'text-anchor': 'middle',
+      'font-size': 26, 'font-weight': 700, opacity: 0, 'font-family': 'ui-monospace, monospace' });
 
     // ---------- game state ----------
     const kite3 = createKite();
     const crossing = makeCrossingDetector(0.08);
     const barPull = createBarPull();
+    const obstacles = createObstacles();
+    const obNodes = new Map();       // obstacle id -> svg element
     let last = null;                 // raw {alpha,beta,gamma}
     let yawPrev = null, spinAccum = 0;
     let pull = 0;
     let running = false, started = false;
     let score = 0, combo = 1, airtime = 0, jumpPeak = 0, runScore = 0;
-    let flashTs = -1e9;
+    let flashTs = -1e9, trickTs = -1e9;
+    function flashTrick(text) { trickText.textContent = text; trickTs = performance.now(); }
     let spot = spotById(cfg.spot);
     let lastFrame = performance.now();
     let t0 = performance.now();
@@ -251,7 +259,14 @@
     $('calibrateBtn').addEventListener('click', () => { if (last) { cfg.neutral = last[axisFor()] || 0; save(); } });
     $('gearBtn').addEventListener('click', () => { running = false; show('settingsOverlay'); });
     $('closeSettings').addEventListener('click', () => { hide('settingsOverlay'); if (started) running = true; });
-    $('relaunchBtn').addEventListener('click', () => { hide('crashOverlay'); running = true; });
+    function relaunch() {
+      kite3.theta = 0; kite3.crashed = false; kite3.crashSide = 0;
+      kite3.height = 0; kite3.vy = 0; kite3.airborne = false; kite3.popArmed = true;
+      crossing.reset(); obstacles.reset();
+      for (const el of obNodes.values()) el.remove(); obNodes.clear();
+      airtime = 0; running = true;
+    }
+    $('relaunchBtn').addEventListener('click', () => { hide('crashOverlay'); relaunch(); });
 
     $('sens').value = cfg.sens; $('sensVal').textContent = cfg.sens;
     $('invert').checked = cfg.invert;
@@ -274,6 +289,8 @@
       window.addEventListener('deviceorientation', onOri);
       await barPull.start();    // motion permission + power axis
 
+      crossing.reset(); obstacles.reset();
+      score = 0; combo = 1; airtime = 0; t0 = performance.now();
       started = true; running = true;
       hide('startOverlay');
     }
@@ -281,19 +298,26 @@
     $('startBtn').addEventListener('click', start);
 
     // ---------- scoring helpers ----------
-    function onCrash() {
+    function wipeout(reason) {
+      if (!running) return;
       running = false; combo = 1;
+      kite3.crashed = true; kite3.airborne = false; kite3.height = 0; kite3.vy = 0;
       runScore = Math.round(score);
       $('crashScore').textContent = runScore;
+      $('crashWhy').textContent = reason;
       haptic('heavy'); setTimeout(() => haptic('heavy'), 140);
       show('crashOverlay');
     }
     function onCross() { score += 25 * combo; combo = Math.min(combo + 1, 9); flashTs = performance.now(); haptic('medium'); }
-    function onTakeoff() { jumpPeak = 0; haptic('medium'); }
+    function onTakeoff() { jumpPeak = 0; spinAccum = 0; haptic('medium'); }
     function onLanding() {
-      const bonus = Math.round(jumpPeak * 120);
-      score += bonus * combo;
-      haptic('light');
+      // Reward height + any rotation pulled off mid-air.
+      const air = Math.round(jumpPeak * 120);
+      const name = trickName(spinAccum);
+      const trick = name ? Math.round(spinAccum) : 0;
+      score += (air + trick) * combo;
+      if (name) { flashTrick(name); combo = Math.min(combo + 1, 9); }
+      haptic(name ? 'medium' : 'light');
     }
 
     // ---------- main loop ----------
@@ -312,7 +336,16 @@
         if (!kite3.crashed && crossing.detect(kite3.theta / thetaMax).crossed12) onCross();
         if (ev.takeoff) onTakeoff();
         if (ev.landing) onLanding();
-        if (ev.crash) { onCrash(); }
+        if (ev.crash) wipeout('Flew into the water at the edge.');
+
+        // obstacles drift toward the rider; jump to clear them
+        const oev = obstacles.update(dt, { wind, airborne: kite3.airborne, height: kite3.height });
+        if (oev.cleared) {
+          score += 40 * oev.cleared * combo;
+          flashTrick(oev.cleared > 1 ? oev.cleared + '× cleared!' : 'Cleared!');
+          haptic('light');
+        }
+        if (oev.hit) wipeout('Hit a buoy on the water — jump it next time.');
 
         if (kite3.airborne) { airtime += dt; jumpPeak = Math.max(jumpPeak, kite3.height); score += dt * 8; }
         else if (!kite3.crashed) { score += dt * 2; airtime = Math.max(0, airtime - dt * 0.5); }
@@ -355,6 +388,30 @@
       lineL.setAttribute('x2', p.x); lineL.setAttribute('y2', p.y);
       lineR.setAttribute('x1', pivot.x + Math.cos(a) * halfBar); lineR.setAttribute('y1', ry + Math.sin(a) * halfBar);
       lineR.setAttribute('x2', p.x); lineR.setAttribute('y2', p.y);
+
+      // obstacles: sync svg nodes to the field; slide from a water edge to rider
+      const items = obstacles.items();
+      const live = new Set();
+      for (const o of items) {
+        live.add(o.id);
+        let el = obNodes.get(o.id);
+        if (!el) {
+          el = o.type === 'buoy'
+            ? add('circle', { r: 8, fill: '#f0883e', stroke: '#3d1d00', 'stroke-width': 1 }, obstacleLayer)
+            : add('polygon', { points: '-10,0 10,0 0,-12', fill: '#2f81f7', opacity: 0.7 }, obstacleLayer);
+          obNodes.set(o.id, el);
+        }
+        const ox = pivot.x + o.side * (1 - o.p) * (cx - 26);
+        const oy = pivot.y - 6 - (o.type === 'buoy' ? 2 * Math.sin(o.p * 12) : 0);
+        if (o.type === 'buoy') { el.setAttribute('cx', ox); el.setAttribute('cy', oy); }
+        else { el.setAttribute('transform', `translate(${ox} ${oy})`); }
+        el.setAttribute('opacity', o.cleared ? 0.25 : (o.type === 'buoy' ? 1 : 0.7));
+      }
+      for (const [id, el] of obNodes) if (!live.has(id)) { el.remove(); obNodes.delete(id); }
+
+      // trick text fade
+      const tAge = now - trickTs;
+      trickText.setAttribute('opacity', tAge < 900 ? (1 - tAge / 900).toFixed(3) : 0);
 
       // HUD
       $('score').textContent = Math.round(score);

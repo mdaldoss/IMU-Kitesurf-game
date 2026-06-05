@@ -2,6 +2,7 @@
 // Pure module, no DOM — same logic the laptop display and phone game use.
 import { PHYS, createKite, stepKite, makeCrossingDetector } from '../public/kite-physics.js';
 import { effectiveWind, SPOTS, spotById } from '../public/wind-spots.js';
+import { createObstacles, trickName } from '../public/kite-game.js';
 
 let failures = 0;
 const ok = (cond, msg) => { if (!cond) { console.error('  ✗ ' + msg); failures++; } else console.log('  ✓ ' + msg); };
@@ -72,5 +73,25 @@ console.log('\nwind-spots:');
   ok(SPOTS.length >= 5, 'has a handful of spots');
 }
 
-console.log(failures === 0 ? '\nAll physics checks passed.' : `\n${failures} check(s) failed.`);
+console.log('\nkite-game:');
+
+// Force a buoy on the first spawn (rng: side<0.5, type<buoyChance), then run the
+// field until it reaches the rider. On the water it hits; airborne high it clears.
+{
+  const mkBuoy = () => createObstacles({ rng: () => 0.1, firstIn: 0.1, minGap: 99, maxGap: 99, baseSpeed: 1 });
+
+  const onWater = mkBuoy(); let hit = false;
+  for (let t = 0; t < 3; t += 0.05) { const e = onWater.update(0.05, { wind: 18, airborne: false, height: 0 }); if (e.hit) hit = true; }
+  ok(hit, 'a buoy hits a rider who is on the water');
+
+  const jumped = mkBuoy(); let cleared = 0;
+  for (let t = 0; t < 3; t += 0.05) { const e = jumped.update(0.05, { wind: 18, airborne: true, height: 2 }); cleared += e.cleared; }
+  ok(cleared >= 1 && cleared <= 1, 'a buoy is cleared when jumped high (once)');
+}
+
+// trickName tiers
+ok(trickName(50) === null, 'small rotation is not a trick');
+ok(trickName(360) === '360°', '~360° rotation names a 360');
+
+console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);

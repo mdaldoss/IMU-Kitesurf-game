@@ -17,7 +17,7 @@ await copyFile(join(publicDir, 'phone.html'), join(www, 'trainer.html'));
 await copyFile(join(publicDir, 'style.css'), join(www, 'style.css'));
 
 // Shared ES modules imported by the phone pages (bar power, physics, spots).
-for (const mod of ['bar-pull.js', 'kite-physics.js', 'wind-spots.js']) {
+for (const mod of ['bar-pull.js', 'kite-physics.js', 'wind-spots.js', 'kite-game.js']) {
   await copyFile(join(publicDir, mod), join(www, mod));
 }
 console.log('Copied public/game.html -> mobile/www/index.html (+ trainer.html, style.css, modules)');

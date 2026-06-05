@@ -19,13 +19,17 @@ Tap **play**, grant motion access, and hold the phone facing you:
   ⚙ settings; calibrate the centre while holding level).
 - **Pull the phone down** to power the kite (the bar power meter fills); a strong
   pull with the kite **overhead** pops a **jump** — the rider lifts off the water.
-- **Cross 12 o'clock** for combo points; **don't crash** into the water (steer
-  back toward centre to relaunch, wind permitting).
+- **Spin the phone mid-air** for trick bonuses (180°/360°/540°…).
+- **Jump the buoys** that drift in along the water — be airborne when they reach
+  you, or you wipe out.
+- **Cross 12 o'clock** for combo points; **don't crash** into the water (tap
+  *Relaunch* to recover).
 - Pick a **spot** in ⚙ settings (Tarifa, Maui, Lake Garda thermal, Cape Town,
   Dakhla) — each has its own wind strength and gust character.
 
-Score = airtime + clean 12-o'clock passes + jump height, with a combo multiplier
-that a crash resets; your best is kept on the device.
+Score = airtime + clean 12-o'clock passes + jump height + tricks + cleared
+buoys, with a combo multiplier that a crash resets; your best is kept on the
+device.
 
 ## Phase 1 — IMU stream validation (this code)
 
