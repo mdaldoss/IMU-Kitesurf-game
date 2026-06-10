@@ -66,6 +66,7 @@ function resolveStaticPath(urlPath) {
   if (rel === '/' || rel === '') rel = '/laptop.html';
   else if (rel === '/phone') rel = '/phone.html';
   else if (rel === '/game') rel = '/game.html';
+  else if (rel === '/sim') rel = '/sim3d.html';
   const resolved = path.normalize(path.join(PUBLIC_DIR, rel));
   if (resolved !== PUBLIC_DIR && !resolved.startsWith(PUBLIC_DIR + path.sep)) {
     return null; // escaped the public dir
@@ -173,11 +174,13 @@ server.listen(PORT, () => {
   const laptopUrl = `https://${host}:${PORT}/`;
   const phoneUrl = `https://${host}:${PORT}/phone`;
   const gameUrl = `https://${host}:${PORT}/game`;
+  const simUrl = `https://${host}:${PORT}/sim`;
 
   console.log('\n  Kitesurf IMU relay running (self-signed HTTPS)\n');
   console.log(`  Laptop display : ${laptopUrl}`);
   console.log(`  Phone sender   : ${phoneUrl}`);
   console.log(`  Phone game     : ${gameUrl}  (standalone, single device)`);
+  console.log(`  3D simulator   : ${simUrl}  (phone IMU, sensors or keyboard)`);
   if (lanIPs.length > 1) {
     console.log(`  (other LAN IPs : ${lanIPs.slice(1).join(', ')})`);
   }

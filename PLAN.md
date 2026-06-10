@@ -20,19 +20,53 @@ headless, DOM-free modules (`public/kite-physics.js` + new modules) shared by
 - No kite size, no elevation in the window, no board/rider, jump is a simple
   "pull hard while overhead" pop.
 
-## 1. Kite model: 2-D wind window + kite size
+## 1. Kite model: 3-D wind window + kite size
 
 **Why:** real kites move in a quarter-sphere (clock positions 9→12→3 *and*
 depth into the power zone), and power depends on *where* the kite is and *how
 fast* it is moving, not just bar input.
 
-**State change** (`kite-physics.js`):
+**State** (new module `kite3d.js`; the legacy 1-D `kite-physics.js` keeps the
+old 2-D pages working):
 
 ```
-theta  : azimuth in the window, −90..+90  (existing; 0 = 12 o'clock)
-phi    : elevation 0..90  (90 = zenith; low phi + small |theta| = deep power zone)
-omega  : kite angular speed (deg/s) — needed for jump lift (see §4)
+theta  : clock angle in the window, −90..+90  (0 = 12 o'clock, ±90 = water)
+d      : window depth 0..1  (0 = parked at the window edge, 1 = deep in the
+         power zone, dead downwind of the rider)
+omega  : kite angular speed (deg/s) — steering output, also jump lift (§4)
 ```
+
+The kite's true 3-D position on the line-length sphere has a closed form
+(x = crosswind, y = downwind, z = up; `td = d · depthMax · 90°`):
+
+```
+pos = L · ( cos(td)·sin(theta),  sin(td),  cos(td)·cos(theta) )
+```
+
+so `d = 0` traces the window-edge arc (9→12→3) and growing `d` swings the kite
+downwind into the power zone at the same clock angle. Depth is **dynamic, not
+directly steered**: a turning, sheeted-in kite flies deep (`d` rises with
+|omega| and pull), a parked kite drifts back to the edge — exactly the real
+behaviour, and it makes the power zone *visible* (§1b). The kite crashes when
+its elevation reaches the water (z ≈ 0): at the side edges, or downwind if you
+hold a dive too long.
+
+## 1b. Seeing it: the 3-D view
+
+A new page (`/sim`, `sim3d.html`) renders the scene in 3-D from a chase camera
+behind/above the rider, looking downwind — no rendering library, just a small
+hand-rolled perspective projection onto a `<canvas>` (`render3d.js`), so it
+stays dependency-free and runs in the Capacitor WebView offline:
+
+- the **wind-window lattice**: meridians/arcs of the quarter sphere, with cells
+  tinted by power-zone intensity (cool at the edge/zenith, hot deep downwind);
+- the **kite** on the sphere with its two lines, visibly leaving the edge and
+  swinging through the power zone when you dive it;
+- the **board + rider** at the origin, rotated to the current heading, with a
+  scrolling water grid + wake showing speed and direction (upwind / crosswind /
+  downwind at a glance), and a wind arrow;
+- HUD: wind true/apparent, board speed, heading label, line tension, jump
+  height.
 
 **Kite size** — new `KITES` table; size sets turn rate and raw power:
 
@@ -84,7 +118,7 @@ We can't make the phone physically heavier, so we emulate "harder bar" by
 session start ("face downwind, tap to zero"). Trainer/desktop fallback: A/D or
 left/right arrows nudge heading.
 
-**State** (new `board-physics.js`, headless + tested):
+**State** (new `board3d.js`, headless + tested):
 
 ```
 heading : deg from downwind, 0 = dead downwind, 90 = beam reach, >135 = pinching
@@ -146,9 +180,9 @@ should multiply by jump height so big sent jumps dominate.
 
 ## 5. Platforms: laptop trainer now, standalone phone game next
 
-- **Shared core:** `kite-physics.js`, new `board-physics.js`, `bar-pull.js`,
-  `wind-spots.js` stay headless ES modules. One `simStep(state, inputs, dt)`
-  facade so both front-ends call exactly one function.
+- **Shared core:** `kite3d.js`, `board3d.js`, `bar-pull.js`, `wind-spots.js`
+  stay headless ES modules, composed by a `sim3d.js` facade (one
+  `sim.step(inputs, dt)` call) so every front-end runs the identical sim.
 - **Laptop trainer (`/` + `/phone`):** unchanged transport (WS relay). Add the
   board/heading panel and kite-size selector to `laptop.html`. Add a
   **keyboard/mouse simulator** mode to `phone.html` (arrows = steer/yaw, space
@@ -162,13 +196,13 @@ should multiply by jump height so big sent jumps dominate.
 
 | Phase | Deliverable | Files | Test focus |
 |-------|-------------|-------|------------|
-| 1 | v² wind power, kite sizes, sheeting, tension output | `kite-physics.js` | tension vs wind/size/pull curves |
-| 2 | 2-D window (`phi`), power-zone map, dynamic (moving-kite) power | `kite-physics.js` | park-at-12 ⇒ low tension; dive ⇒ spike |
-| 3 | Board model: yaw heading, polar, stall upwind, apparent wind | `board-physics.js` (new) | stall ≥135°, sine-ing keeps speed |
-| 4 | Bar effort scaling + tension haptics | `bar-pull.js`, both HTMLs | gain vs wind |
-| 5 | Send-to-jump, downwind drift, landing redirect | `kite-physics.js`, `kite-game.js` | height ∝ ω_cross; bad landing penalty |
-| 6 | Desktop keyboard sim + trainer UI (size selector, compass) | `phone.html`, `laptop.html` | manual |
-| 7 | Phone portrait layout, yaw calibration, Capacitor sync | `game.html`, `mobile/` | on-device |
+| 1 | v² wind power, kite sizes, sheeting, tension output | `kite3d.js` (new) | tension vs wind/size/pull curves |
+| 2 | 3-D window (`theta`,`d`), power-zone map, dynamic (moving-kite) power | `kite3d.js` | park ⇒ low tension; dive ⇒ spike |
+| 3 | Board model: yaw heading, polar, stall upwind, apparent wind | `board3d.js` (new) | stall ≥135°, sine-ing keeps speed |
+| 4 | Send-to-jump, downwind drift, landing redirect | `kite3d.js` | height ∝ ω_cross; bad landing penalty |
+| 5 | 3-D chase-camera view + `/sim` page (WS / sensors / keyboard inputs) | `render3d.js`, `sim3d.html`, `sim3d.js`, `server.js` | manual |
+| 6 | Bar effort scaling + tension haptics | `bar-pull.js`, `sim3d.html` | gain vs wind |
+| 7 | Phone portrait layout, yaw calibration, Capacitor sync | `mobile/` | on-device |
 
 Each phase lands behind sensible defaults so the game stays playable at every
 commit; new constants go in the existing `PHYS`-style tables so tuning sessions
