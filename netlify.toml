@@ -5,3 +5,19 @@
   from = "/"
   to = "/laptop.html"
   status = 200
+
+# Friendly routes normally rewritten by server.js — Netlify needs its own copies.
+[[redirects]]
+  from = "/sim"
+  to = "/sim3d.html"
+  status = 200
+
+[[redirects]]
+  from = "/game"
+  to = "/game.html"
+  status = 200
+
+[[redirects]]
+  from = "/phone"
+  to = "/phone.html"
+  status = 200
