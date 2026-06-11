@@ -123,6 +123,14 @@
     <button class="btn" id="closeSettings">Done</button>
   </div>
 
+  <!-- iOS Safari haptic trick (off-screen, not display:none): toggling a
+       switch-styled checkbox via a label click yields a system haptic on
+       iOS 17.4+, but ONLY from a real user gesture — event-driven buzzes
+       are best-effort on iPhone web; the Capacitor app has true haptics. -->
+  <label id="iosHapticLabel" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;">
+    <input id="iosHapticSwitch" type="checkbox" switch />
+  </label>
+
   <script type="module">
     import { createSim3D, KITES, P3, B3 } from '/sim3d.js';
     import { SPOTS, spotById } from '/wind-spots.js';
@@ -266,6 +274,9 @@
     const isNative = !!(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform());
     const nativeHaptics = isNative && cap.Plugins && cap.Plugins.Haptics;
     const canVibrate = typeof navigator.vibrate === 'function';
+    const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const iosLabel = $('iosHapticLabel');
     function haptic(kind) {
       if (nativeHaptics) {
         const style = kind === 'light' ? 'LIGHT' : kind === 'heavy' ? 'HEAVY' : 'MEDIUM';
@@ -273,6 +284,10 @@
       } else if (canVibrate) {
         const p = kind === 'heavy' ? [0, 120, 60, 120, 60, 120] : kind === 'light' ? [0, 80] : [0, 120, 60, 120];
         navigator.vibrate(p);
+      } else if (isIOS) {
+        // iOS Safari: switch-toggle haptic — fires reliably only inside a
+        // user gesture; outside one it is silently ignored by the OS.
+        try { iosLabel.click(); } catch {}
       }
       sendBuzz(kind === 'heavy' ? 2 : 1);   // trainer: buzz the phone controller
     }
@@ -342,8 +357,23 @@
     const hide = (id) => $(id).classList.add('hidden');
 
     // ---------- start ----------
+    // Landscape by default: the 3-D window is widescreen. Android needs
+    // fullscreen before orientation.lock resolves; iOS Safari doesn't support
+    // locking at all (the layout adapts, just rotate the phone).
+    async function lockLandscape() {
+      try {
+        if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+          await document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
+        }
+        if (screen.orientation && typeof screen.orientation.lock === 'function') {
+          await screen.orientation.lock('landscape');
+        }
+      } catch {}
+    }
+
     let running = false, started = false;
     async function start(withSensors) {
+      lockLandscape();
       if (withSensors) {
         const ok = await enableSensors();
         if (!ok && !servedByLaptop) banner('No sensors — keyboard works', '#8b949e');
