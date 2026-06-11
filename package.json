@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/kite-physics.test.mjs"
+    "test": "node test/kite-physics.test.mjs && node test/sim3d.test.mjs"
   },
   "dependencies": {
     "qrcode-terminal": "^0.12.0",

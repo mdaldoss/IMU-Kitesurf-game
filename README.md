@@ -1,7 +1,14 @@
 # IMU Kitesurf Game
 
-A kitesurf-bar simulator with two modes that share one flight model:
+A kitesurf-bar simulator with three modes that share one flight model:
 
+- **3D simulator** (`/sim`) — the realistic mode (see [PLAN.md](PLAN.md)): the
+  kite flies the full 3-D wind window with a visible power zone, the board has a
+  heading (twist the phone — yaw — to point upwind/crosswind/downwind), kite
+  sizes 7–13 m, apparent wind, and pro-style send-to-jump. Works three ways:
+  phone streaming to a laptop (trainer), standalone on the phone with its own
+  sensors, or keyboard-only on a computer (←/→ steer, space = bar in, A/D =
+  board heading).
 - **Standalone phone game** (`/game`) — a single-device kite game: tilt to steer,
   pull the phone down to power up and jump, fly real-spot wind presets, score
   combos. No laptop or network needed. Runs in a phone browser or as the
@@ -9,6 +16,21 @@ A kitesurf-bar simulator with two modes that share one flight model:
 - **Trainer** — a laptop browser displays the kite and a control "bar"; a
   smartphone's motion sensors drive it over the LAN. Hold the phone level → kite
   at 12 o'clock; roll right/left → steer; pull down → power.
+
+## 3D simulator (`/sim`)
+
+The wind-window quarter sphere is drawn in 3-D from a chase camera: arcs are
+tinted by power-zone intensity (hot = deep downwind). Park the kite at the
+window edge and it barely pulls — you slow down; dive it through the hot zone
+and the line tension (bottom bar) spikes and the board accelerates. Wind force
+scales with apparent wind **squared**, so spot choice and riding direction
+matter. Pinch too far upwind and the board stalls; bear away to rebuild speed.
+Jumps work like the real thing: ride powered with the kite at ~10 o'clock, send
+it hard past 12, sheet in — then redirect it forward before touchdown or you
+land hard and dump your speed. Smaller kites turn faster, bigger ones pull
+harder (⚙ settings). Physics lives in `public/kite3d.js`, `public/board3d.js`,
+`public/sim3d.js`; rendering in `public/render3d.js` (hand-rolled projection,
+no dependencies); tests in `test/sim3d.test.mjs`.
 
 ## Standalone game (`/game`)
 

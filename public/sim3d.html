@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>Kite — 3D sim</title>
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    html, body { height: 100%; margin: 0; overflow: hidden; }
+    body { background: #0d1117; touch-action: none; }
+    /* Forced landscape: iOS Safari can't lock orientation, so when a touch
+       device shows us a portrait viewport we rotate the whole game 90°.
+       (transform makes body the containing block for all fixed children.) */
+    @media screen and (orientation: portrait) {
+      body.rot { position: absolute; top: -100vw; left: 0; width: 100vh; height: 100vw;
+                 transform: rotate(90deg); transform-origin: bottom left; }
+    }
+    #stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+    .hud { position: fixed; left: 0; right: 0; top: 0; padding: calc(env(safe-area-inset-top) + 0.5rem) 0.8rem 0;
+           display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none;
+           font-family: ui-monospace, monospace; color: #e6edf3; text-shadow: 0 1px 4px #000; }
+    .hud .big { font-size: 1.5rem; }
+    .hud .sub { font-size: 0.78rem; color: #8b949e; }
+    .hud .right { text-align: right; }
+    .hud .warn { color: #e3b341; }
+    .hud .badv { color: #f85149; }
+    .spotname { color: #2f81f7; font-weight: 600; }
+
+    .power { position: fixed; left: 0.8rem; right: 0.8rem; bottom: calc(env(safe-area-inset-bottom) + 0.6rem);
+             height: 12px; background: rgba(255,255,255,0.08); border-radius: 6px; overflow: hidden; pointer-events: none; }
+    #tenFill { height: 100%; width: 0%; background: linear-gradient(90deg,#2f81f7,#e3b341,#f85149); transition: width 0.06s linear; }
+    .powlabel { position: fixed; left: 0.9rem; bottom: calc(env(safe-area-inset-bottom) + 1.5rem);
+                font: 0.7rem ui-monospace, monospace; color: #8b949e; pointer-events: none; }
+    #banner { position: fixed; left: 0; right: 0; top: 24%; text-align: center; pointer-events: none;
+              font: 700 1.4rem ui-monospace, monospace; color: #e3b341; text-shadow: 0 1px 6px #000; opacity: 0;
+              transition: opacity 0.25s; }
+
+    .overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+               gap: 0.9rem; background: rgba(13,17,23,0.88); backdrop-filter: blur(3px); text-align: center; padding: 1.4rem; z-index: 10;
+               overflow-y: auto; }
+    .overlay.hidden { display: none; }
+    .overlay h1 { margin: 0; font-size: 1.7rem; }
+    .overlay p { margin: 0; color: #8b949e; max-width: 30rem; line-height: 1.5; }
+    .btn { font: inherit; font-size: 1.05rem; padding: 0.85rem 1.5rem; border-radius: 12px; border: 0; background: #2f81f7; color: #fff; }
+    .btn.sec { background: #21262d; color: #e6edf3; border: 1px solid #30363d; font-size: 0.95rem; padding: 0.6rem 1rem; }
+    .gear { position: fixed; right: 0.8rem; top: calc(env(safe-area-inset-top) + 3.4rem); z-index: 5;
+            width: 42px; height: 42px; border-radius: 50%; border: 1px solid #30363d; background: rgba(33,38,45,0.8);
+            color: #e6edf3; font-size: 1.2rem; }
+    .field { display: flex; flex-direction: column; gap: 0.3rem; width: min(92vw, 24rem); text-align: left; }
+    .field label { color: #8b949e; font-size: 0.85rem; }
+    .seg { display: flex; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
+    .seg button { flex: 1; background: #0d1117; color: #8b949e; border: 0; padding: 0.55rem; font: inherit; }
+    .seg button.on { background: #2f81f7; color: #fff; }
+    .spotgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; width: min(92vw, 26rem); }
+    .spotcard { text-align: left; padding: 0.55rem 0.7rem; border-radius: 10px; border: 1px solid #30363d; background: #161b22; color: #e6edf3; }
+    .spotcard.active { border-color: #2f81f7; box-shadow: 0 0 0 1px #2f81f7 inset; }
+    .spotcard b { display: block; }
+    .spotcard small { color: #8b949e; }
+    input[type=range] { width: 100%; }
+    .kbd { display: inline-block; border: 1px solid #30363d; border-radius: 4px; padding: 0 0.35rem; background: #161b22; font-family: ui-monospace, monospace; }
+  </style>
+</head>
+<body>
+  <canvas id="stage"></canvas>
+
+  <div class="hud">
+    <div>
+      <div class="big"><span id="speedKn">0</span><span class="sub"> kn</span></div>
+      <div class="sub" id="headingLabel">beam reach · 95°</div>
+      <div class="sub">wind <span id="windTrue">—</span> kn · apparent <span id="windApp">—</span></div>
+    </div>
+    <div class="right">
+      <div class="sub"><span class="spotname" id="spotName">—</span> · <span id="kiteName">12 m</span></div>
+      <div class="sub">air <span id="airH">0.0</span> m · best <span id="bestH">0.0</span> m</div>
+      <div class="sub" id="srcLabel">keyboard</div>
+    </div>
+  </div>
+
+  <div id="banner"></div>
+  <button class="gear" id="gearBtn" aria-label="Settings">⚙</button>
+  <div class="power"><div id="tenFill"></div></div>
+  <div class="powlabel">line tension</div>
+
+  <!-- start overlay -->
+  <div class="overlay" id="startOverlay">
+    <h1>🪁 Kite — 3D</h1>
+    <p>The kite flies the whole wind window: park it at the edge and it barely pulls,
+       dive it through the <b>power zone</b> (the hot arcs, low and downwind) and it hauls.
+       Twist the phone (yaw) to point the board <b>upwind / crosswind / downwind</b> —
+       pinch too high and you stall. To jump like the pros: ride powered with the kite
+       at 10, <b>send it hard past 12</b>, pull the bar — then steer it back forward
+       to land with speed.</p>
+    <button class="btn" id="startSensors">Play with phone sensors</button>
+    <button class="btn sec" id="startKeyboard">Play with keyboard</button>
+    <p class="sub" id="trainerHint" style="font-size:0.8rem"></p>
+    <p style="font-size:0.8rem;color:#8b949e">
+      Keyboard: <span class="kbd">←</span><span class="kbd">→</span> steer ·
+      <span class="kbd">space</span> bar in ·
+      <span class="kbd">A</span>/<span class="kbd">D</span> board upwind/downwind</p>
+  </div>
+
+  <!-- settings overlay -->
+  <div class="overlay hidden" id="settingsOverlay">
+    <h1>Settings</h1>
+    <div class="field">
+      <label>Kite size — smaller turns faster, bigger pulls harder</label>
+      <div class="seg" id="kiteSeg"></div>
+    </div>
+    <div class="field">
+      <label>Spot &amp; wind</label>
+      <div class="spotgrid" id="spotGrid"></div>
+    </div>
+    <div class="field">
+      <label>Control scheme</label>
+      <div class="seg" id="schemeSeg">
+        <button data-scheme="tilt">Tilt to steer</button>
+        <button data-scheme="bar">Bar style</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>Sensitivity — full steer at ±<span id="sensVal">45</span>°</label>
+      <input type="range" id="sens" min="20" max="80" step="5" value="45" />
+    </div>
+    <div class="field">
+      <label><input type="checkbox" id="invert" /> Invert steering</label>
+      <label><input type="checkbox" id="invertYaw" /> Invert board yaw</label>
+    </div>
+    <div class="field">
+      <label>Haptics — mode: <span id="hapticMode">—</span></label>
+      <div class="seg" id="haptSeg">
+        <button data-h="0">Off</button>
+        <button data-h="0.6">Light</button>
+        <button data-h="1">Normal</button>
+        <button data-h="1.8">Strong</button>
+      </div>
+      <button class="btn sec" id="hapticTest">Test haptic now</button>
+      <label id="hapticHint" style="display:none"></label>
+    </div>
+    <button class="btn sec" id="calibrateBtn">Calibrate — hold phone level, pointing "downwind"</button>
+    <button class="btn" id="closeSettings">Done</button>
+  </div>
+
+  <!-- iOS Safari haptic trick (off-screen, not display:none): toggling a
+       switch-styled checkbox via a label click yields a system haptic on
+       iOS 17.4+, but ONLY from a real user gesture — event-driven buzzes
+       are best-effort on iPhone web; the Capacitor app has true haptics. -->
+  <label id="iosHapticLabel" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;">
+    <input id="iosHapticSwitch" type="checkbox" switch />
+  </label>
+
+  <script type="module">
+    import { createSim3D, KITES, P3, B3 } from '/sim3d.js';
+    import { SPOTS, spotById } from '/wind-spots.js';
+    import { createBarPull } from '/bar-pull.js';
+    import { createRenderer3D } from '/render3d.js';
+
+    const $ = (id) => document.getElementById(id);
+    const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+    // ---------- persisted settings ----------
+    const cfg = Object.assign(
+      { scheme: 'tilt', invert: false, invertYaw: false, sens: 45, neutral: 0,
+        yawZero: null, spot: 'maui', kite: '12', bestH: 0, hapt: 1 },
+      JSON.parse(localStorage.getItem('kite-sim3d') || '{}')
+    );
+    const save = () => localStorage.setItem('kite-sim3d', JSON.stringify(cfg));
+
+    // Forced-landscape rotation (touch devices whose viewport stays portrait,
+    // e.g. iPhones with rotation lock). When active, the player physically
+    // holds the phone landscape, so the steering tilt axis becomes beta.
+    const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    if (isTouch) document.body.classList.add('rot');
+    const rotActive = () => isTouch && matchMedia('(orientation: portrait)').matches;
+    const axisFor = () => (rotActive() || cfg.scheme === 'bar' ? 'beta' : 'gamma');
+
+    // ---------- sim + renderer ----------
+    const sim = createSim3D({ kiteId: cfg.kite, spotId: cfg.spot });
+    const renderer = createRenderer3D($('stage'));
+    const barPull = createBarPull();
+
+    // ---------- inputs: WS phone (trainer) > local sensors > keyboard ----------
+    let remote = null, remoteTs = 0;     // streamed {alpha,beta,gamma,pull}
+    let local = null;                    // this device's orientation
+    let sensorsLive = false;
+    const kb = { steer: 0, pull: 0, heading: 95, left: false, right: false, up: false, dn: false, space: false, used: false };
+
+    // WebSocket trainer feed — only when served by the relay server.
+    const servedByLaptop = location.protocol.startsWith('http') && location.host;
+    let ws = null;
+    function connectWS() {
+      if (!servedByLaptop) return;
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      try { ws = new WebSocket(`${proto}://${location.host}/ws`); } catch { return; }
+      ws.addEventListener('open', () => ws.send(JSON.stringify({ t: 'hello', role: 'laptop' })));
+      ws.addEventListener('message', (ev) => {
+        let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+        if (msg.t === 'ori') { remote = msg; remoteTs = performance.now(); }
+      });
+      ws.addEventListener('close', () => setTimeout(connectWS, 2000));
+      ws.addEventListener('error', () => { try { ws.close(); } catch {} });
+    }
+    connectWS();
+    if (servedByLaptop) {
+      $('trainerHint').textContent = 'Phone as controller: open /phone on your phone (same Wi-Fi), tap "Enable sensors" — this page becomes the display.';
+    }
+    function sendBuzz(n) {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: 'buzz', n }));
+    }
+
+    // local sensors (standalone phone)
+    function onOri(e) { local = { alpha: e.alpha, beta: e.beta, gamma: e.gamma }; }
+    async function enableSensors() {
+      try {
+        if (typeof DeviceOrientationEvent !== 'undefined' &&
+            typeof DeviceOrientationEvent.requestPermission === 'function') {
+          const r = await DeviceOrientationEvent.requestPermission();
+          if (r !== 'granted') return false;
+        }
+      } catch { return false; }
+      if (typeof DeviceOrientationEvent === 'undefined') return false;
+      if ('ondeviceorientationabsolute' in window) window.addEventListener('deviceorientationabsolute', onOri);
+      window.addEventListener('deviceorientation', onOri);
+      await barPull.start();
+      sensorsLive = true;
+      return true;
+    }
+
+    // keyboard (desktop testing without any phone)
+    addEventListener('keydown', (e) => {
+      if (e.repeat) return;
+      if (e.code === 'ArrowLeft') kb.left = true;
+      else if (e.code === 'ArrowRight') kb.right = true;
+      else if (e.code === 'Space') { kb.space = true; e.preventDefault(); }
+      else if (e.code === 'KeyA') kb.up = true;       // luff up (more upwind)
+      else if (e.code === 'KeyD') kb.dn = true;       // bear away (downwind)
+      else return;
+      kb.used = true;
+    });
+    addEventListener('keyup', (e) => {
+      if (e.code === 'ArrowLeft') kb.left = false;
+      else if (e.code === 'ArrowRight') kb.right = false;
+      else if (e.code === 'Space') kb.space = false;
+      else if (e.code === 'KeyA') kb.up = false;
+      else if (e.code === 'KeyD') kb.dn = false;
+    });
+
+    function steerFromOri(o) {
+      const raw = o && o[axisFor()];
+      if (raw == null) return 0;
+      let v = (raw - cfg.neutral) / cfg.sens;
+      if (cfg.invert) v = -v;
+      return clamp(v, -1, 1);
+    }
+    function headingFromOri(o) {
+      if (!o || o.alpha == null) return null;
+      if (cfg.yawZero == null) cfg.yawZero = o.alpha;
+      let dYaw = ((cfg.yawZero - o.alpha + 540) % 360) - 180;   // twist right → +
+      if (cfg.invertYaw) dYaw = -dYaw;
+      return clamp(95 + dYaw, -170, 170);
+    }
+
+    // Gather this frame's inputs from whichever source is alive.
+    function readInputs(dt, windNow) {
+      // keyboard always integrates, so it can take over any time
+      const rate = 3.5, ret = 5;
+      if (kb.left || kb.right) kb.steer = clamp(kb.steer + (kb.right ? 1 : -1) * rate * dt, -1, 1);
+      else kb.steer -= Math.sign(kb.steer) * Math.min(Math.abs(kb.steer), ret * dt);
+      kb.pull = clamp(kb.pull + (kb.space ? 2.6 : -2.0) * dt, 0, 1);
+      if (kb.up) kb.heading = clamp(kb.heading + 55 * dt, -170, 170);
+      if (kb.dn) kb.heading = clamp(kb.heading - 55 * dt, -170, 170);
+
+      const remoteFresh = remote && performance.now() - remoteTs < 400;
+      // bar effort: stronger wind ⇒ lower accel→pull gain ⇒ more arm work
+      barPull.setGain(0.9 * clamp(P3.windRef / Math.max(1, windNow), 0.45, 1.6));
+
+      if (kb.used && (kb.left || kb.right || kb.space || kb.up || kb.dn || Math.abs(kb.steer) > 0.02 || kb.pull > 0.02)) {
+        $('srcLabel').textContent = 'keyboard';
+        return { steer: kb.steer, pull: kb.pull, heading: kb.heading };
+      }
+      if (remoteFresh) {
+        $('srcLabel').textContent = 'phone (trainer)';
+        const h = headingFromOri(remote);
+        if (h != null) kb.heading = h;                  // keep keyboard in sync
+        return { steer: steerFromOri(remote), pull: remote.pull || 0, heading: h ?? kb.heading };
+      }
+      if (sensorsLive && local) {
+        $('srcLabel').textContent = 'phone sensors';
+        const h = headingFromOri(local);
+        if (h != null) kb.heading = h;
+        return { steer: steerFromOri(local), pull: barPull.read(), heading: h ?? kb.heading };
+      }
+      $('srcLabel').textContent = 'keyboard';
+      return { steer: kb.steer, pull: kb.pull, heading: kb.heading };
+    }
+
+    // ---------- haptics (same ladder as the game page) ----------
+    const cap = window.Capacitor;
+    const isNative = !!(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform());
+    const nativeHaptics = isNative && cap.Plugins && cap.Plugins.Haptics;
+    const canVibrate = typeof navigator.vibrate === 'function';
+    const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const iosLabel = $('iosHapticLabel');
+    const hapticMode = nativeHaptics ? 'native' : canVibrate ? 'vibration' : isIOS ? 'ios-switch' : 'none';
+    function haptic(kind) {
+      const m = cfg.hapt;                  // strength multiplier, 0 = off
+      if (m <= 0) return;
+      if (nativeHaptics) {
+        const style = (kind === 'heavy' || m > 1.4) ? 'HEAVY' : (kind === 'light' && m < 1) ? 'LIGHT' : 'MEDIUM';
+        cap.Plugins.Haptics.impact({ style }).catch(() => {});
+      } else if (canVibrate) {
+        const base = kind === 'heavy' ? [120, 60, 120, 60, 120] : kind === 'light' ? [80] : [120, 60, 120];
+        navigator.vibrate([0, ...base.map((v, i) => (i % 2 ? v : Math.round(v * m)))]);
+      } else if (isIOS) {
+        // iOS Safari: switch-toggle haptic — the OS only honours it inside a
+        // real user gesture; gameplay-driven calls are silently dropped.
+        // "Strength" = number of rapid ticks.
+        const n = kind === 'heavy' || m > 1.4 ? 3 : m < 1 ? 1 : 2;
+        for (let i = 0; i < n; i++) setTimeout(() => { try { iosLabel.click(); } catch {} }, i * 90);
+      }
+      sendBuzz(kind === 'heavy' ? 2 : 1);   // trainer: buzz the phone controller
+    }
+    let tenArmed = true;   // tension-spike tick, re-armed when tension settles
+
+    // ---------- UI ----------
+    let banTs = 0;
+    function banner(text, color = '#e3b341') {
+      const el = $('banner');
+      el.textContent = text; el.style.color = color; el.style.opacity = 1;
+      banTs = performance.now();
+    }
+    function headingLabel(h) {
+      const a = Math.abs(h);
+      const side = h >= 0 ? 'R' : 'L';
+      const word = a < 35 ? 'downwind run' : a < 70 ? 'broad reach' : a < 105 ? 'beam reach'
+        : a < 135 ? 'upwind' : a < 150 ? 'pinching!' : 'head to wind!';
+      return `${word} · ${Math.round(a)}° ${side}`;
+    }
+
+    function buildKiteSeg() {
+      const seg = $('kiteSeg'); seg.innerHTML = '';
+      for (const k of KITES) {
+        const b = document.createElement('button');
+        b.textContent = k.name;
+        b.classList.toggle('on', k.id === cfg.kite);
+        b.onclick = () => { cfg.kite = k.id; sim.setKite(k.id); save(); buildKiteSeg(); $('kiteName').textContent = k.name; };
+        seg.appendChild(b);
+      }
+    }
+    function buildSpotGrid() {
+      const grid = $('spotGrid'); grid.innerHTML = '';
+      for (const s of SPOTS) {
+        const b = document.createElement('button');
+        b.className = 'spotcard' + (s.id === cfg.spot ? ' active' : '');
+        b.innerHTML = `<b>${s.name}</b><small>${s.region} · ~${s.baseWind}kn</small>`;
+        b.onclick = () => { cfg.spot = s.id; save(); sim.setSpot(s.id); renderer.clearTrail(); buildSpotGrid();
+          $('spotName').textContent = `${s.name}`; };
+        grid.appendChild(b);
+      }
+    }
+    function syncScheme() {
+      for (const b of $('schemeSeg').children) b.classList.toggle('on', b.dataset.scheme === cfg.scheme);
+    }
+    $('schemeSeg').addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      cfg.scheme = b.dataset.scheme; cfg.neutral = 0; save(); syncScheme();
+    });
+    // haptic strength + direct test (a real tap, so the iOS trick can fire)
+    $('hapticMode').textContent = hapticMode;
+    function syncHapt() {
+      for (const b of $('haptSeg').children) b.classList.toggle('on', Math.abs(+b.dataset.h - cfg.hapt) < 0.01);
+    }
+    $('haptSeg').addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      cfg.hapt = +b.dataset.h; save(); syncHapt();
+      if (cfg.hapt > 0) haptic('medium');
+    });
+    $('hapticTest').addEventListener('click', () => haptic('heavy'));
+    syncHapt();
+    if (hapticMode === 'ios-switch') {
+      const hint = $('hapticHint'); hint.style.display = '';
+      hint.textContent = 'iPhone browser: haptics need iOS 17.4+ and only fire from direct taps (like the test button) — never from gameplay events. That is a Safari limitation; the native app (mobile/) has full haptics.';
+    } else if (hapticMode === 'none') {
+      const hint = $('hapticHint'); hint.style.display = '';
+      hint.textContent = 'No haptic API in this browser.';
+    }
+
+    $('sens').addEventListener('input', (e) => { cfg.sens = +e.target.value; $('sensVal').textContent = cfg.sens; save(); });
+    $('invert').addEventListener('change', (e) => { cfg.invert = e.target.checked; save(); });
+    $('invertYaw').addEventListener('change', (e) => { cfg.invertYaw = e.target.checked; save(); });
+    $('calibrateBtn').addEventListener('click', () => {
+      const o = (remote && performance.now() - remoteTs < 400) ? remote : local;
+      if (o) { cfg.neutral = o[axisFor()] || 0; cfg.yawZero = o.alpha; save(); banner('Calibrated'); }
+    });
+    $('gearBtn').addEventListener('click', () => { running = false; show('settingsOverlay'); });
+    $('closeSettings').addEventListener('click', () => { hide('settingsOverlay'); if (started) running = true; });
+
+    $('sens').value = cfg.sens; $('sensVal').textContent = cfg.sens;
+    $('invert').checked = cfg.invert; $('invertYaw').checked = cfg.invertYaw;
+    $('spotName').textContent = spotById(cfg.spot).name;
+    $('kiteName').textContent = KITES.find((k) => k.id === cfg.kite)?.name || '12 m';
+    $('bestH').textContent = (cfg.bestH || 0).toFixed(1);
+    buildKiteSeg(); buildSpotGrid(); syncScheme();
+
+    const show = (id) => $(id).classList.remove('hidden');
+    const hide = (id) => $(id).classList.add('hidden');
+
+    // ---------- start ----------
+    // Landscape by default: the 3-D window is widescreen. Android needs
+    // fullscreen before orientation.lock resolves; iOS Safari doesn't support
+    // locking at all (the layout adapts, just rotate the phone).
+    async function lockLandscape() {
+      try {
+        if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+          await document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
+        }
+        if (screen.orientation && typeof screen.orientation.lock === 'function') {
+          await screen.orientation.lock('landscape');
+        }
+      } catch {}
+    }
+
+    let running = false, started = false;
+    async function start(withSensors) {
+      lockLandscape();
+      if (withSensors) {
+        const ok = await enableSensors();
+        if (!ok && !servedByLaptop) banner('No sensors — keyboard works', '#8b949e');
+      }
+      started = true; running = true;
+      hide('startOverlay');
+    }
+    $('startSensors').addEventListener('click', () => start(true));
+    $('startKeyboard').addEventListener('click', () => start(false));
+
+    // ---------- main loop ----------
+    let lastFrame = performance.now();
+    let snap = null, peakH = 0;
+    function frame() {
+      const now = performance.now();
+      const dt = Math.min(0.05, (now - lastFrame) / 1000);
+      lastFrame = now;
+
+      if (running && started) {
+        const windNow = snap ? snap.windTrue : spotById(cfg.spot).baseWind;
+        const inputs = readInputs(dt, windNow);
+        snap = sim.step({ ...inputs, dt });
+
+        // events → feedback
+        const ev = snap.events;
+        if (ev.takeoff) { peakH = 0; haptic('medium'); }
+        if (snap.airborne) peakH = Math.max(peakH, snap.height);
+        if (ev.landing) {
+          if (ev.clean) { banner(`+${peakH.toFixed(1)} m — clean landing!`, '#3fb950'); haptic('light'); }
+          else { banner('Hard landing — kite was behind you', '#f85149'); haptic('heavy'); }
+          if (peakH > (cfg.bestH || 0)) { cfg.bestH = peakH; save(); $('bestH').textContent = peakH.toFixed(1); }
+        }
+        if (ev.crash) { banner('Kite in the water — steer hard away from it to relaunch', '#f85149'); haptic('heavy'); }
+        if (ev.relaunch) banner('Relaunched', '#3fb950');
+        if (snap.stalled && Math.abs(snap.heading) > 130) banner('Too far upwind — bear away (D)', '#e3b341');
+        else if (snap.stalled && !snap.crashed && snap.tension < 0.4) banner('Off the plane — dive the kite for power', '#e3b341');
+
+        // tension-spike tick (the "bar load" cue)
+        if (tenArmed && snap.tension > 1.6) { tenArmed = false; haptic('light'); }
+        else if (!tenArmed && snap.tension < 1.0) tenArmed = true;
+
+        // HUD
+        $('speedKn').textContent = snap.speedKn.toFixed(0);
+        $('headingLabel').textContent = headingLabel(snap.heading);
+        $('headingLabel').className = 'sub' + (Math.abs(snap.heading) > 135 ? ' badv' : Math.abs(snap.heading) > 120 ? ' warn' : '');
+        $('windTrue').textContent = snap.windTrue.toFixed(0);
+        $('windApp').textContent = snap.windApp.toFixed(0);
+        $('airH').textContent = (snap.airborne ? snap.height : 0).toFixed(1);
+        $('tenFill').style.width = Math.round(Math.min(1, snap.tension / 2.5) * 100) + '%';
+      }
+
+      if (snap) renderer.render(snap, { steer: kb.used ? kb.steer : steerFromOri(remote || local) });
+      if (performance.now() - banTs > 2200) $('banner').style.opacity = 0;
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+    addEventListener('resize', () => renderer.resize());
+  </script>
+</body>
+</html>

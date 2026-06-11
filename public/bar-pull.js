@@ -18,7 +18,7 @@
 
 export function createBarPull(opts = {}) {
   const decay = opts.decay ?? 1.8;     // 1/s — how fast pull relaxes to neutral
-  const gain = opts.gain ?? 0.9;       // m/s -> pull sensitivity
+  let gain = opts.gain ?? 0.9;         // m/s -> pull sensitivity
   const smooth = opts.smooth ?? 0.12;  // output low-pass time constant (s)
 
   let vel = 0;        // leaky-integrated downward velocity proxy (m/s)
@@ -77,6 +77,9 @@ export function createBarPull(opts = {}) {
     read() { return pull; },
     // Inject a value (e.g. the laptop applying a `pull` streamed from the phone).
     set(v) { pull = Math.max(0, Math.min(1, Number(v) || 0)); },
+    // Emulated bar load: in strong wind the sim lowers the gain, so the same
+    // sheeting demands a faster/longer physical pull — the arm works harder.
+    setGain(g) { gain = Math.max(0.05, Number(g) || gain); },
     isLive() { return started; },
   };
 }
