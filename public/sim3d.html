@@ -8,6 +8,13 @@
   <style>
     html, body { height: 100%; margin: 0; overflow: hidden; }
     body { background: #0d1117; touch-action: none; }
+    /* Forced landscape: iOS Safari can't lock orientation, so when a touch
+       device shows us a portrait viewport we rotate the whole game 90°.
+       (transform makes body the containing block for all fixed children.) */
+    @media screen and (orientation: portrait) {
+      body.rot { position: absolute; top: -100vw; left: 0; width: 100vh; height: 100vw;
+                 transform: rotate(90deg); transform-origin: bottom left; }
+    }
     #stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 
     .hud { position: fixed; left: 0; right: 0; top: 0; padding: calc(env(safe-area-inset-top) + 0.5rem) 0.8rem 0;
@@ -119,6 +126,17 @@
       <label><input type="checkbox" id="invert" /> Invert steering</label>
       <label><input type="checkbox" id="invertYaw" /> Invert board yaw</label>
     </div>
+    <div class="field">
+      <label>Haptics — mode: <span id="hapticMode">—</span></label>
+      <div class="seg" id="haptSeg">
+        <button data-h="0">Off</button>
+        <button data-h="0.6">Light</button>
+        <button data-h="1">Normal</button>
+        <button data-h="1.8">Strong</button>
+      </div>
+      <button class="btn sec" id="hapticTest">Test haptic now</button>
+      <label id="hapticHint" style="display:none"></label>
+    </div>
     <button class="btn sec" id="calibrateBtn">Calibrate — hold phone level, pointing "downwind"</button>
     <button class="btn" id="closeSettings">Done</button>
   </div>
@@ -143,11 +161,18 @@
     // ---------- persisted settings ----------
     const cfg = Object.assign(
       { scheme: 'tilt', invert: false, invertYaw: false, sens: 45, neutral: 0,
-        yawZero: null, spot: 'maui', kite: '12', bestH: 0 },
+        yawZero: null, spot: 'maui', kite: '12', bestH: 0, hapt: 1 },
       JSON.parse(localStorage.getItem('kite-sim3d') || '{}')
     );
     const save = () => localStorage.setItem('kite-sim3d', JSON.stringify(cfg));
-    const axisFor = () => (cfg.scheme === 'bar' ? 'beta' : 'gamma');
+
+    // Forced-landscape rotation (touch devices whose viewport stays portrait,
+    // e.g. iPhones with rotation lock). When active, the player physically
+    // holds the phone landscape, so the steering tilt axis becomes beta.
+    const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    if (isTouch) document.body.classList.add('rot');
+    const rotActive = () => isTouch && matchMedia('(orientation: portrait)').matches;
+    const axisFor = () => (rotActive() || cfg.scheme === 'bar' ? 'beta' : 'gamma');
 
     // ---------- sim + renderer ----------
     const sim = createSim3D({ kiteId: cfg.kite, spotId: cfg.spot });
@@ -277,17 +302,22 @@
     const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) ||
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     const iosLabel = $('iosHapticLabel');
+    const hapticMode = nativeHaptics ? 'native' : canVibrate ? 'vibration' : isIOS ? 'ios-switch' : 'none';
     function haptic(kind) {
+      const m = cfg.hapt;                  // strength multiplier, 0 = off
+      if (m <= 0) return;
       if (nativeHaptics) {
-        const style = kind === 'light' ? 'LIGHT' : kind === 'heavy' ? 'HEAVY' : 'MEDIUM';
+        const style = (kind === 'heavy' || m > 1.4) ? 'HEAVY' : (kind === 'light' && m < 1) ? 'LIGHT' : 'MEDIUM';
         cap.Plugins.Haptics.impact({ style }).catch(() => {});
       } else if (canVibrate) {
-        const p = kind === 'heavy' ? [0, 120, 60, 120, 60, 120] : kind === 'light' ? [0, 80] : [0, 120, 60, 120];
-        navigator.vibrate(p);
+        const base = kind === 'heavy' ? [120, 60, 120, 60, 120] : kind === 'light' ? [80] : [120, 60, 120];
+        navigator.vibrate([0, ...base.map((v, i) => (i % 2 ? v : Math.round(v * m)))]);
       } else if (isIOS) {
-        // iOS Safari: switch-toggle haptic — fires reliably only inside a
-        // user gesture; outside one it is silently ignored by the OS.
-        try { iosLabel.click(); } catch {}
+        // iOS Safari: switch-toggle haptic — the OS only honours it inside a
+        // real user gesture; gameplay-driven calls are silently dropped.
+        // "Strength" = number of rapid ticks.
+        const n = kind === 'heavy' || m > 1.4 ? 3 : m < 1 ? 1 : 2;
+        for (let i = 0; i < n; i++) setTimeout(() => { try { iosLabel.click(); } catch {} }, i * 90);
       }
       sendBuzz(kind === 'heavy' ? 2 : 1);   // trainer: buzz the phone controller
     }
@@ -336,6 +366,26 @@
       const b = e.target.closest('button'); if (!b) return;
       cfg.scheme = b.dataset.scheme; cfg.neutral = 0; save(); syncScheme();
     });
+    // haptic strength + direct test (a real tap, so the iOS trick can fire)
+    $('hapticMode').textContent = hapticMode;
+    function syncHapt() {
+      for (const b of $('haptSeg').children) b.classList.toggle('on', Math.abs(+b.dataset.h - cfg.hapt) < 0.01);
+    }
+    $('haptSeg').addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      cfg.hapt = +b.dataset.h; save(); syncHapt();
+      if (cfg.hapt > 0) haptic('medium');
+    });
+    $('hapticTest').addEventListener('click', () => haptic('heavy'));
+    syncHapt();
+    if (hapticMode === 'ios-switch') {
+      const hint = $('hapticHint'); hint.style.display = '';
+      hint.textContent = 'iPhone browser: haptics need iOS 17.4+ and only fire from direct taps (like the test button) — never from gameplay events. That is a Safari limitation; the native app (mobile/) has full haptics.';
+    } else if (hapticMode === 'none') {
+      const hint = $('hapticHint'); hint.style.display = '';
+      hint.textContent = 'No haptic API in this browser.';
+    }
+
     $('sens').addEventListener('input', (e) => { cfg.sens = +e.target.value; $('sensVal').textContent = cfg.sens; save(); });
     $('invert').addEventListener('change', (e) => { cfg.invert = e.target.checked; save(); });
     $('invertYaw').addEventListener('change', (e) => { cfg.invertYaw = e.target.checked; save(); });

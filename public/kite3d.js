@@ -18,15 +18,15 @@
 // (angle of attack) and kite speed (apparent wind of the moving kite).
 
 export const KITES = [
-  { id: '7',  name: '7 m',  turn: 1.6,  power: 0.75 },
-  { id: '9',  name: '9 m',  turn: 1.25, power: 0.9  },
-  { id: '12', name: '12 m', turn: 1.0,  power: 1.1  },
-  { id: '13', name: '13 m', turn: 0.85, power: 1.2  },
+  { id: '7',  name: '7 m',  area: 7,  turn: 1.6  },
+  { id: '9',  name: '9 m',  area: 9,  turn: 1.25 },
+  { id: '12', name: '12 m', area: 12, turn: 1.0  },
+  { id: '13', name: '13 m', area: 13, turn: 0.85 },
 ];
 export const kiteById = (id) => KITES.find((k) => k.id === String(id)) || KITES[2];
 
 export const P3 = {
-  windRef: 18,        // kn — all rates/forces calibrated here
+  windRef: 18,        // kn — turn rates calibrated here
   minWind: 6,         // below this a crashed kite can't relaunch
   thetaMax: 90,       // water at the clock sides (geometry)
   thetaPin: 86,       // steering pins here: a parked kite rests just above the
@@ -38,6 +38,12 @@ export const P3 = {
   depthTauIn: 0.55,   // s — how fast a dive carries the kite into the zone
   depthTauOut: 1.5,   // s — how fast a parked kite drifts back to the edge
   zoneBase: 0.18,     // tension floor at the edge (a parked kite still pulls a bit)
+  // real aero force: F = ½·ρ·A·C_L·v_a²  (v_a = apparent wind, m/s)
+  rho: 1.225,         // air density kg/m³
+  clMin: 0.4,         // C_L bar fully out (measured LEI depower range 0.4→1.0)
+  clMax: 1.0,         // C_L bar fully in
+  forceMax: 3500,     // N — safety clamp (line sets break around 4–5 kN)
+  forceBody: 650,     // N ≈ one 'body weight' unit for the normalized tension HUD
   crashZ: 0.05,       // elevation (sin) below which the kite hits the water
   relaunchDrag: 0.35, // sluggish peel-off from the water
   // jump model — height in metres, velocities m/s
@@ -49,7 +55,7 @@ export const P3 = {
   hopGain: 4,         // m/s for the standing pop (no send) — a small hop
   gravity: 9.81,
   hangGravity: 4.6,   // effective gravity with the kite overhead, bar in
-  minSendSpeed: 0.3,  // board speed (normalized) needed to load a real send
+  minSendSpeed: 3.5,  // board speed (m/s) needed to load a real send
 };
 
 export function createKite3(kiteId = '12') {
@@ -63,7 +69,9 @@ export function createKite3(kiteId = '12') {
     sendT: Infinity,      // seconds since the last fast 12-crossing
     sendOmega: 0,         // |omega| at that crossing
     sendFrom: 0,          // which side the kite came FROM on that crossing
-    tension: 0, zone: 0,
+    tension: 0,           // line force in 'body weights' (forceN / forceBody)
+    forceN: 0,            // line force, newtons — what the board model consumes
+    zone: 0,
   };
 }
 
@@ -104,7 +112,7 @@ export function stepKite3(k, opts) {
       k.theta += (target - k.theta) * kk;
     }
     if (Math.abs(k.theta) < 70) { k.crashed = false; k.crashSide = 0; ev.relaunch = true; }
-    k.tension = 0; k.zone = 0; k.omega = 0;
+    k.tension = 0; k.forceN = 0; k.zone = 0; k.omega = 0;
     return ev;
   }
 
@@ -133,18 +141,22 @@ export function stepKite3(k, opts) {
   const tauD = dTarget > k.d ? P3.depthTauIn : P3.depthTauOut;
   k.d += (dTarget - k.d) * (1 - Math.exp(-dt / tauD));
 
-  // --- line tension ---------------------------------------------------------
+  // --- line force, the real way: F = ½·ρ·A·C_L·v_a² ------------------------
+  // v_a is the apparent wind at the kite; a moving kite multiplies its own
+  // airspeed (the `dyn` term), which is why dives spike the force 2–4×.
   const pos = kitePos(k.theta, k.d);
   k.zone = pos.y * pos.y;                       // cos² of angle from downwind
   const zoneF = P3.zoneBase + (1 - P3.zoneBase) * k.zone;
-  const sheet = 0.35 + 0.65 * pull;             // angle of attack from the bar
+  const cl = P3.clMin + (P3.clMax - P3.clMin) * pull;   // sheeting = angle of attack
   const dyn = 1 + 0.7 * Math.min(1.5, Math.abs(k.omega) / 70);  // moving kite
-  k.tension = clamp(def.power * windF * windF * zoneF * sheet * dyn, 0, 3);
+  const va = windApp * 0.514;                   // kn -> m/s
+  k.forceN = clamp(0.5 * P3.rho * def.area * cl * va * va * zoneF * dyn, 0, P3.forceMax);
+  k.tension = k.forceN / P3.forceBody;          // ~body weights, for HUD/jump scaling
 
   // --- crash: kite reaches the water (side edge, or a dive held too long) --
   if (!k.airborne && pos.z < P3.crashZ) {
     k.crashed = true; k.crashSide = Math.sign(k.theta) || 1;
-    k.tension = 0; ev.crash = true;
+    k.tension = 0; k.forceN = 0; ev.crash = true;
     return ev;
   }
 

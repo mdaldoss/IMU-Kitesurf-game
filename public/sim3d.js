@@ -41,7 +41,7 @@ export function createSim3D({ kiteId = '12', spotId = 'maui' } = {}) {
         riderSpeed: board.speed, heading: Math.abs(board.heading),
       });
       stepBoard(board, {
-        headingTarget: heading, tension: kite.crashed ? 0 : kite.tension,
+        headingTarget: heading, forceN: kite.crashed ? 0 : kite.forceN,
         windTrue, airborne: kite.airborne, dt,
       });
       // a botched landing dumps the rider's speed
@@ -51,11 +51,11 @@ export function createSim3D({ kiteId = '12', spotId = 'maui' } = {}) {
       return {
         tSec, windTrue, windApp: board.windApp,
         theta: kite.theta, d: kite.d, omega: kite.omega, pos,
-        tension: kite.tension, zone: kite.zone,
+        tension: kite.tension, forceN: kite.forceN, zone: kite.zone,
         crashed: kite.crashed, airborne: kite.airborne,
         height: kite.height, vy: kite.vy,
         heading: board.heading, speed: board.speed,
-        speedKn: board.speed * B3.speedKn,
+        speedKn: board.speed * B3.KN,
         stalled: board.stalled, boardPos: { ...board.pos },
         events: ev,
       };

@@ -77,18 +77,31 @@ console.log('\nboard3d — heading, polar, apparent wind:');
 {
   const beam = run(createSim3D(), 20, (t) => ({ ...sining(t), heading: 100 }));
   const pinch = run(createSim3D(), 20, (t) => ({ ...sining(t), heading: 160 }));
-  ok(beam.speed > 0.5, `beam reach sustains speed (${beam.speed.toFixed(2)})`);
-  ok(pinch.speed < 0.2 && pinch.stalled, `pinching past the polar stalls (${pinch.speed.toFixed(2)})`);
+  ok(beam.speed > 5, `beam reach sustains planing speed (${beam.speedKn.toFixed(0)} kn)`);
+  ok(pinch.speed < 1.5 && pinch.stalled, `pinching past the polar stalls (${pinch.speedKn.toFixed(1)} kn)`);
   ok(polar(160) < 0.05 && polar(105) > 0.95, 'polar peaks past beam, dies upwind');
 }
 
-// 7. Park the kite while riding -> the board bleeds speed.
+// 6b. Real magnitudes: cruise line force ≈ one body weight; speed ≈ wind.
+{
+  const s = run(createSim3D(), 20, sining);
+  ok(s.forceN > 350 && s.forceN < 1600,
+    `cruise line force is human-scale (${s.forceN.toFixed(0)} N ≈ ${(s.forceN / 9.81).toFixed(0)} kg)`);
+  ok(s.speedKn > 10 && s.speedKn < 36, `cruise speed ~wind speed (${s.speedKn.toFixed(0)} kn in 18 kn)`);
+}
+
+// 7. Park the kite while riding -> the board bleeds speed, and the effect of
+//    the kite leaving the power zone is felt almost instantly (F = m·a on
+//    80 kg: drag ≈ 500 N at cruise ⇒ ~5 m/s² the moment drive vanishes).
 {
   const sim = createSim3D();
   run(sim, 15, sining);                      // get up to cruise
   const cruising = sim.board.speed;
-  const after = run(sim, 8, parked).speed;   // park the kite at 12
-  ok(after < cruising * 0.55, `parking the kite bleeds speed (${cruising.toFixed(2)} → ${after.toFixed(2)})`);
+  const soon = run(sim, 0.7, parked).speed;  // kite just left the zone
+  ok(cruising - soon > 1.0,
+    `deceleration is near-instant (${((cruising - soon) / 0.7).toFixed(1)} m/s² in the first 0.7 s)`);
+  const after = run(sim, 7.3, parked).speed;
+  ok(after < cruising * 0.5, `parking the kite bleeds speed (${(cruising * B3.KN).toFixed(0)} → ${(after * B3.KN).toFixed(0)} kn)`);
 }
 
 // 8. Apparent wind: crosswind riding builds it, a downwind run eats it.
